@@ -5,6 +5,7 @@ import { LIST_DEFINITIONS, APP_PERMISSIONS } from '../../utils/constants.js'
 import { getAppRoles } from '../../utils/app-state.js'
 import { createDefinitionsTab } from './utils/definitions-tab.js'
 import { createTeamTab } from './utils/team-tab.js'
+import { createScopesTab } from './utils/scopes-tab.js'
 
 export default defineRoute(async (config) => {
   config.setRouteTitle('Admin Area')
@@ -41,6 +42,7 @@ export default defineRoute(async (config) => {
   })
 
   const teamView = await createTeamTab({ siteApi, pmGroupMembers })
+  const scopesView = createScopesTab()
 
   // ------------------------------------------------------------------
   // Sidebar Navigation
@@ -49,6 +51,7 @@ export default defineRoute(async (config) => {
   const NAV_ITEMS = [
     { key: 'definitions', label: 'Definitions' },
     { key: 'team', label: 'Capacity Tracker' },
+    { key: 'scopes', label: 'Scopes' },
   ]
 
   const navContainers = new Map()
@@ -83,6 +86,7 @@ export default defineRoute(async (config) => {
     [
       ['definitions', new View([definitionsTabGroup])],
       ['team', teamView],
+      ['scopes', scopesView],
     ],
     {
       containerSelector: '#admin-switcher-target',
