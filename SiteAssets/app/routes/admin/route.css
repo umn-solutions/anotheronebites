@@ -1,0 +1,195 @@
+/* Admin Route */
+.admin-route {
+	padding: calc(var(--app-spacing) * 3);
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+	align-items: stretch;
+}
+
+/* ---------- Sidebar Navigation ---------- */
+
+.app-admin-nav-item {
+	border-radius: var(--radius-md);
+	margin-bottom: var(--space-xs);
+}
+
+.app-admin-nav-item .app-admin-nav-btn {
+	width: 100%;
+	justify-content: flex-start;
+	font-weight: var(--font-weight-regular);
+}
+
+.app-admin-nav-item--active {
+	background: var(--app-primary-light);
+}
+
+.app-admin-nav-item--active .app-admin-nav-btn {
+	color: var(--app-primary);
+	font-weight: var(--font-weight-semibold);
+}
+
+/* ---------- Content Area ---------- */
+
+.app-admin-content {
+	min-height: 0;
+	overflow-y: auto;
+}
+
+/* ---------- Tab Content ---------- */
+
+.app-admin-tab-content {
+	padding: var(--space-l) 0;
+}
+
+/* ---------- Value Items ---------- */
+
+.app-admin-value-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.35rem 0.5rem;
+	border-radius: var(--radius-md);
+}
+
+.app-admin-value-item:hover {
+	background: var(--app-bg-light);
+}
+
+.app-admin-value-item--inactive {
+	opacity: 0.6;
+}
+
+/* ---------- Disabled Section Heading ---------- */
+
+.app-admin-inactive-heading {
+	font-size: var(--font-size-200);
+	text-transform: uppercase;
+	color: var(--app-text-muted);
+	margin: 0.75rem 0 0.25rem;
+	letter-spacing: 0.02em;
+}
+
+/* ---------- Add Row ---------- */
+
+.app-admin-add-row {
+	display: flex;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+	align-items: flex-start;
+}
+
+.app-admin-add-row .nofbiz__textinput {
+	flex: 1;
+}
+
+/* ---------- Team Management Table ---------- */
+
+.app-team-table {
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--app-card-radius);
+	overflow: hidden;
+	box-shadow: var(--app-card-shadow);
+}
+
+.app-team-header,
+.app-team-row {
+	display: grid;
+	grid-template-columns: 1fr 1.5fr 6rem;
+	align-items: center;
+	padding: 0.6rem 1rem;
+	gap: 1rem;
+}
+
+.app-team-header {
+	background: var(--app-surface-raised);
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-team-header-cell {
+	font-size: var(--font-size-200);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--app-text-muted);
+}
+
+.app-team-member {
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-team-member:last-child {
+	border-bottom: none;
+}
+
+.app-team-row {
+	background: var(--app-surface-base);
+	cursor: default;
+}
+
+.app-team-row:hover {
+	background: var(--app-bg-light);
+}
+
+.app-team-name {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+}
+
+.app-team-email {
+	font-size: var(--font-size-300);
+	color: var(--app-text-muted);
+}
+
+.app-team-total {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-success);
+	text-align: right;
+}
+
+.app-team-total--over {
+	color: var(--color-danger-primary);
+}
+
+.app-team-breakdown-row {
+	display: grid;
+	grid-template-columns: 1fr 6rem;
+	padding: 0.3rem 1rem 0.3rem 2.5rem;
+	gap: 1rem;
+	background: var(--app-surface-sunken);
+	border-top: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-team-project-id {
+	font-size: var(--font-size-200);
+	color: var(--app-text-muted);
+	font-family: monospace;
+}
+
+.app-team-project-percent {
+	font-size: var(--font-size-200);
+	color: var(--app-text-muted);
+	text-align: right;
+}
+
+.app-team-no-alloc {
+	display: block;
+	padding: 0.3rem 1rem 0.3rem 2.5rem;
+	font-size: var(--font-size-200);
+	color: var(--app-text-muted);
+	font-style: italic;
+	background: var(--app-surface-sunken);
+	border-top: var(--stroke-thin) solid var(--app-border);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 768px) {
+	.admin-route {
+		height: auto;
+		overflow: auto;
+	}
+}

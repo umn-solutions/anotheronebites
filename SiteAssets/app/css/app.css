@@ -1,0 +1,540 @@
+/* ==========================================================================
+   Management Platform -- Global App CSS
+   Loaded once in index.html, after nofbiz.base.css (via pageReset).
+   All classes are app-specific and do not conflict with nofbiz__* classes.
+   ========================================================================== */
+
+/* ---------- Custom Properties ---------- */
+
+:root {
+	--app-max-width: 1200px;
+	--app-spacing: 1rem;
+	--app-card-gap: 1rem;
+	--app-primary: var(--color-brand-primary);
+	--app-primary-light: var(--color-brand-selected);
+	--app-success: var(--color-success-primary);
+	--app-border: var(--color-stroke-subtle);
+	--app-bg-light: var(--color-bg-secondary);
+	--app-text-muted: var(--color-fg-secondary);
+
+	/* Elevation & surface */
+	--app-card-shadow: var(--shadow-2);
+	--app-card-shadow-hover: var(--shadow-4);
+	--app-surface-base: var(--color-bg-base);
+	--app-surface-raised: var(--color-bg-subtle);
+	--app-surface-sunken: var(--color-bg-secondary);
+
+	/* Transitions */
+	--app-transition-fast: var(--duration-fast) var(--curve-easy-ease);
+	--app-transition-normal: var(--duration-normal) var(--curve-easy-ease);
+
+	/* Accents & layout */
+	--app-accent-blue: var(--color-info-primary);
+	--app-card-radius: var(--radius-lg);
+	--app-section-gap: 1.5rem;
+
+	/* Status badge colors */
+	--app-status-progress-bg: #dbeafe;
+	--app-status-progress-fg: #1e40af;
+	--app-status-completed-bg: #dcfce7;
+	--app-status-completed-fg: #166534;
+	--app-status-delayed-bg: #fef3c7;
+	--app-status-delayed-fg: #92400e;
+	--app-status-pipeline-bg: #ede9fe;
+	--app-status-pipeline-fg: #5b21b6;
+	--app-status-on-hold-bg: #ffedd5;
+	--app-status-on-hold-fg: #9a3412;
+	--app-status-stopped-bg: #fee2e2;
+	--app-status-stopped-fg: #991b1b;
+}
+
+.background-img {
+	position: absolute;
+	inset: 0;
+	height: auto;
+	z-index: -1;
+	filter: blur(3px) opacity(0.5) grayscale(0.05);
+}
+
+/* ---------- Action Buttons ---------- */
+
+.app-action-buttons {
+	display: flex;
+	gap: 0.75rem;
+	justify-content: flex-end;
+	padding-top: 1rem;
+	margin-top: 0.5rem;
+	border-top: var(--stroke-thin) solid var(--app-border);
+}
+
+/* Push cancel (first button) left, view controls right */
+.app-action-buttons > :first-child,
+.app-wizard-nav > :first-child {
+	margin-right: auto;
+}
+
+/* ---------- Status Badge ---------- */
+
+.app-status-badge {
+	display: inline-block;
+	padding: 0.15rem 0.5rem;
+	border-radius: var(--radius-xl);
+	font-size: 0.75rem;
+	font-weight: var(--font-weight-semibold);
+	background: var(--app-bg-light);
+	color: var(--app-text-muted);
+	white-space: nowrap;
+}
+
+.app-status--in-progress {
+	background: var(--app-status-progress-bg);
+	color: var(--app-status-progress-fg);
+}
+.app-status--completed {
+	background: var(--app-status-completed-bg);
+	color: var(--app-status-completed-fg);
+}
+.app-status--delayed {
+	background: var(--app-status-delayed-bg);
+	color: var(--app-status-delayed-fg);
+}
+.app-status--pipeline {
+	background: var(--app-status-pipeline-bg);
+	color: var(--app-status-pipeline-fg);
+}
+.app-status--on-hold {
+	background: var(--app-status-on-hold-bg);
+	color: var(--app-status-on-hold-fg);
+}
+.app-status--stopped {
+	background: var(--app-status-stopped-bg);
+	color: var(--app-status-stopped-fg);
+}
+
+/* ---------- Empty State ---------- */
+
+.app-empty-state {
+	text-align: center;
+	padding: 2rem;
+	color: var(--app-text-muted);
+}
+
+/* ---------- Detail Pages (shared base) ---------- */
+
+.projects-detail-route,
+.proposals-detail-route,
+.programs-detail-route {
+	padding: calc(var(--app-spacing) * 3);
+	display: flex;
+	flex-direction: column;
+}
+
+/* Center content on simpler detail pages */
+.proposals-detail-route,
+.programs-detail-route {
+	align-items: center;
+}
+
+.proposals-detail-route > *,
+.programs-detail-route > * {
+	width: 100%;
+	max-width: var(--app-max-width);
+}
+
+/* ---------- Create Pages (vertical centering) ---------- */
+
+.projects-new-route,
+.programs-new-route {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	width: 100%;
+	padding: 8vh 8vw;
+}
+
+/* ---------- Form Card ---------- */
+
+.app-form-card.nofbiz__card {
+	background: rgba(255, 255, 255, 0.15);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-4);
+	backdrop-filter: blur(10px);
+	display: flex;
+	flex-direction: column;
+}
+
+/* ---------- Wizard ---------- */
+
+.app-wizard {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	width: 75%;
+}
+
+.app-wizard h1 {
+	font-size: 1.5rem;
+	font-weight: var(--font-weight-semibold);
+	margin-bottom: 1.25rem;
+	color: var(--app-primary);
+}
+
+.app-wizard-nav {
+	display: flex;
+	align-items: center;
+	padding: 1rem 0;
+	margin-top: auto;
+	border-top: var(--stroke-thin) solid var(--app-border);
+	gap: 0.75rem;
+}
+
+.app-step-indicator {
+	text-align: center;
+	font-size: 0.8rem;
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: var(--app-primary);
+	background: var(--app-primary-light);
+	padding: 0.35rem 1rem;
+	border-radius: var(--radius-circular);
+	width: fit-content;
+	margin: 0 auto 0.5rem;
+}
+
+/* ---------- Wizard Content Area ---------- */
+
+#wizard-target {
+	display: flex;
+	flex-direction: column;
+}
+
+#wizard-target > .nofbiz__view {
+	display: flex;
+	flex-direction: column;
+}
+
+/* ---------- Sections Row (side-by-side form sections) ---------- */
+
+.app-sections-row {
+	display: flex;
+	gap: 1rem;
+	align-items: flex-start;
+}
+
+.app-sections-row > .app-form-section {
+	flex: 1;
+	margin-bottom: 0;
+	min-width: 0;
+}
+
+/* ---------- Form Layout ---------- */
+
+.app-form-section {
+	background: var(--color-bg-base);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-left: var(--stroke-thickest) solid var(--app-primary);
+	border-radius: var(--app-card-radius);
+	padding: 1.25rem 1.5rem;
+	margin-bottom: var(--app-section-gap);
+	box-shadow: var(--app-card-shadow);
+}
+
+.app-form-section > .nofbiz__text:first-child {
+	font-size: 1.1rem;
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+	padding-bottom: 0.75rem;
+	margin-bottom: 1rem;
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-form-row {
+	display: flex;
+	gap: 1rem;
+	flex-wrap: wrap;
+	box-shadow: none;
+}
+
+.app-form-row > * {
+	flex: 1;
+	min-width: 200px;
+}
+
+.app-labeled-field {
+	margin-bottom: 0.75rem;
+}
+
+.app-labeled-field .nofbiz__fieldlabel__label {
+	font-weight: var(--font-weight-semibold);
+	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--app-text-muted);
+	margin-bottom: 0.25rem;
+}
+
+/* Full-width form inputs */
+.app-form-section .form-control,
+.app-form-section .nofbiz__combobox,
+.app-form-section .nofbiz__peoplepicker {
+	width: 100%;
+}
+
+.app-form-section .nofbiz__checkbox {
+	width: 1rem;
+	height: 1rem;
+}
+
+/* ---------- Tab Content ---------- */
+
+.app-tab-content {
+	padding: 1rem 0;
+}
+
+/* ---------- Update Dialog ---------- */
+
+.app-update-dialog.nofbiz__dialog {
+	width: min(700px, 90vw);
+	padding: .5em 2em;
+}
+
+/* Neutralize Dialog's list-item styling for form content */
+.app-update-dialog .nofbiz__dialog__content > * {
+	border-top: none;
+	font-size: inherit;
+	font-weight: inherit;
+	color: inherit;
+	padding: var(--space-sNudge) 0;
+}
+
+/* Let form fields shrink inside the dialog */
+.app-update-dialog .app-form-row > * {
+	min-width: 140px;
+}
+
+.app-update-dialog .form-control,
+.app-update-dialog .nofbiz__combobox,
+.app-update-dialog .nofbiz__peoplepicker {
+	width: 100%;
+}
+
+/* ---------- Full-Page Loader ---------- */
+
+.app-fullpage-loader {
+	position: fixed !important;
+}
+
+/* ---------- Multi-Target Value Picker ---------- */
+
+.app-target-value-input-row {
+	display: flex;
+	gap: 0.5rem;
+	align-items: flex-end;
+	margin-bottom: 0.35rem;
+}
+
+/* ---------- Multi-Person Picker ---------- */
+
+.app-multi-person-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+	margin-top: 0.35rem;
+}
+
+.app-multi-person-item {
+	display: inline-flex;
+	align-items: center;
+	white-space: nowrap;
+	gap: 0.25rem;
+	background: var(--app-bg-light);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--radius-circular);
+	padding: 0.15rem 0.5rem;
+	font-size: 0.85rem;
+}
+
+.app-multi-person-item .nofbiz__button {
+	padding: 0 0.25rem;
+	font-size: 0.75rem;
+	min-height: unset;
+	line-height: 1;
+}
+
+/* ---------- Detail Dialog ---------- */
+
+.app-detail-dialog.nofbiz__dialog {
+	width: min(auto, 90vw);
+}
+.app-detail-dialog .nofbiz__dialog__header > * {
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+	align-items: center;
+	width: 100%;
+}
+.app-detail-dialog .nofbiz__dialog__footer {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.app-detail-row {
+	display: flex;
+	flex-direction: column;
+	padding: 0.5rem 0;
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-detail-row:last-child {
+	border-bottom: none;
+}
+
+.app-detail-label {
+	font-size: 0.75rem;
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	color: var(--app-text-muted);
+	margin-bottom: 0.2rem;
+}
+
+.app-detail-value {
+	font-size: 0.95rem;
+	color: var(--color-fg-primary);
+	max-height: 6rem;
+	overflow-y: auto;
+}
+
+.app-detail-value--empty {
+	font-style: italic;
+	color: var(--app-text-muted);
+}
+
+/* ---------- Page Header (shared: project detail, admin, proposals) ---------- */
+
+.app-detail-header {
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+	width: 100%;
+	align-items: center;
+}
+
+.app-detail-header-card {
+	margin: 0;
+}
+
+/* ---------- Dashboard Layout (shared: project detail, admin) ---------- */
+
+.app-dashboard-layout {
+	display: grid;
+	grid-template-columns: 280px 1fr;
+	gap: 1.5rem;
+	flex: 1;
+	min-height: 0;
+}
+
+.app-dashboard-sidebar {
+	overflow-y: auto;
+	background: var(--color-bg-base);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--app-card-radius);
+	padding: 1rem 1.25rem;
+	box-shadow: var(--app-card-shadow);
+}
+
+.app-dashboard-layout .nofbiz__tabgroup {
+	margin: 0;
+}
+
+/* ---------- Responsive Breakpoints ---------- */
+
+@media (max-width: 768px) {
+	:root {
+		--app-spacing: 0.75rem;
+		--app-card-gap: 0.75rem;
+	}
+
+	.app-form-row {
+		flex-direction: column;
+	}
+
+	.app-form-row > * {
+		min-width: 0;
+	}
+
+	.app-dashboard-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.app-sections-row {
+		flex-direction: column;
+	}
+
+	.app-wizard-nav {
+		gap: 0.5rem;
+	}
+
+	.app-action-buttons {
+		flex-wrap: wrap;
+	}
+
+	.proposals-detail-route,
+	.programs-detail-route {
+		padding: calc(var(--app-spacing) * 2);
+	}
+}
+
+@media (max-width: 480px) {
+	:root {
+		--app-spacing: 0.5rem;
+	}
+
+	.app-wizard {
+		padding: 0.5rem;
+	}
+
+	.app-form-section {
+		padding: 1rem;
+	}
+}
+
+/* ---- Tree Visualization ---- */
+
+.app-umbrella-panel {
+	padding: var(--space-l);
+}
+
+.app-section-heading {
+	font-size: var(--font-size-400);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+	margin-bottom: var(--space-xs);
+}
+
+.app-tree-hint {
+	font-size: var(--font-size-200);
+	color: var(--color-fg-secondary);
+	margin-bottom: var(--space-l);
+}
+
+.app-tree-mount {
+	overflow-x: auto;
+	min-height: 200px;
+	padding: var(--space-l) 0;
+}
+
+.app-tree-mount svg {
+	font-family: inherit;
+}
+
+.app-tree-node rect {
+	transition: filter 0.15s;
+}
+
+.app-tree-node:hover rect {
+	filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
+}

@@ -1,0 +1,28 @@
+.app-user-type-buttons {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.app-user-type-buttons .nofbiz__button {
+  padding: 2rem 3rem;
+  font-size: 1.1rem;
+  border-radius: var(--app-card-radius);
+  min-width: 180px;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.app-user-type-buttons .nofbiz__button:hover {
+  transform: translateY(-2px);
+}
+
+.app-tech-fields {
+  margin-top: 0.5rem;
+}
+
+.app-wizard-nav {
+  display: none;
+}
