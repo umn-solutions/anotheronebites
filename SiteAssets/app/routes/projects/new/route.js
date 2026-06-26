@@ -428,20 +428,34 @@ export default defineRoute(async (config) => {
 		m => m.Email.toLowerCase() === user.get('email').toLowerCase()
 	);
 
+	const pmMembersList = new Container([], { class: "app-staffing-members" });
+	const renderPmMembers = (members) => {
+		const list = members || [];
+		pmMembersList.children = list.length
+			? [
+				new Text("PM Members", { type: "p", class: "app-field-label" }),
+				...list.map(ui => new Text(ui.displayName || ui.email, { type: "p", class: "app-staffing-member" })),
+			]
+			: [new Text("No PM Members selected", { type: "p", class: "app-field-hint" })];
+	};
+	renderPmMembers(pmMembersField.value);
+	pmMembersField.subscribe(renderPmMembers);
+
 	const step4 = new View([
 		isPmGroupMember
 			? new Container([
-				createFormSection("Your FTE Allocation", [
+				createFormSection("Staffing Allocation", [
 					createLabeledField(
-						"FTE",
+						"Staffing Allocation",
 						new NumberInput(allocationField, {
 							step: 0.05, min: 0, max: 2,
 						}),
 					),
-					new Text("FTE allocation for this project (0 to 1)", {
+					new Text("Staffing allocation for this project (0 to 1)", {
 						type: "p",
 						class: "app-field-hint",
 					}),
+					pmMembersList,
 				]),
 			], { class: "app-sections-row" })
 			: new Text("Capacity allocation is available for Project Managers", { type: "p", class: "app-empty-state" }),

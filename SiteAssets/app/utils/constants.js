@@ -22,8 +22,6 @@ export const GDPR_CLASSIFICATIONS = [
 
 export const PROJECT_STATUSES = ['Pipeline','On Hold', 'In Progress', 'Completed', 'Stopped', 'Delayed']
 
-export const SCOPE_OPTIONS = ['In Scope', 'Out of Scope']
-
 export const TARGET_TYPES = [
   'User Experience',
   'Client Experience',

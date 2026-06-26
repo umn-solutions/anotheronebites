@@ -66,8 +66,8 @@ export function createCharterTab({ project, siteApi, umbrellaOptions, projectTyp
         createLabeledField('Project Type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
         createLabeledField('GDPR Classification', new ComboBox(gdprField, GDPR_CLASSIFICATIONS, { allowFiltering: false }))
       ]),
+      createLabeledField('Scope/Out of Scope', new TextArea(scopeField, { placeholder: 'Describe what is in scope and out of scope' })),
       createFormRow([
-        createLabeledField('Scope/Out of Scope', new TextArea(scopeField, { placeholder: 'Describe what is in scope and out of scope' })),
         createLabeledField('Start Date', new DateInput(startDateField, { format: 'yyyy-mm-dd' })),
         createLabeledField('Expected End Date', new DateInput(endDateField, { format: 'yyyy-mm-dd' }))
       ]),

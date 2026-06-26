@@ -84,7 +84,7 @@ export function createOverviewTab({ project, updates }) {
     readOnlyRow('Role', project.Role),
     readOnlyRow('Start Date', project.StartDate),
     readOnlyRow('Expected End Date', project.ExpectedEndDate),
-    readOnlyRow('Scope', project.Scope),
+    readOnlyRow('Scope/Out of Scope', project.Scope),
     readOnlyRow('Product', project.Product),
     readOnlyRow('Umbrella Program', project.UmbrellaProgram)
   ])
