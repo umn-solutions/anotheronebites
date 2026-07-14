@@ -1,4 +1,5 @@
 import { LIST_PROJECT_ACCESS } from './constants.js'
+import { loadScopes } from './scopes.js'
 
 // Permission matrix: which effective roles can perform which actions
 const PERMISSION_MAP = {
@@ -16,18 +17,20 @@ const PERMISSION_MAP = {
  * 2. Confidential + not ADMIN -> null (blocked)
  * 3. PMMembers or SubmittedBy -> 'owner'
  * 4. PROJECT_MANAGER group -> 'manager'
- * 5. Contributing delegation (includes PMMembers via explicit ProjectAccess) -> 'contributing'
+ * 5. Contributing delegation -> 'contributing'
  * 6. Read delegation -> 'reader'
- * 7. Internal + no match -> null
- * 8. NoRestriction -> 'reader'
+ * 7. Scope membership (project PMScope in userScopes) -> 'reader' (additive, not on Confidential)
+ * 8. Internal + no prior match -> null
+ * 9. NoRestriction -> 'reader'
  *
  * @param {object} project - Project record with AccessLevel, PMMembersEmail, SubmittedByEmail
  * @param {string} userEmail - Current user's email
  * @param {string} siteAccessLevel - User's group label ('ADMIN', 'PROJECT_MANAGER', 'COLLABORATOR')
  * @param {object[]} delegations - ProjectAccess records for this project (filtered by ProjectUUID)
+ * @param {Set<string>} [userScopes] - PMScope values the user belongs to (additive grant only)
  * @returns {'owner'|'manager'|'contributing'|'reader'|null}
  */
-export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delegations) {
+export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delegations, userScopes = new Set()) {
   // 1. Admin always gets owner
   if (siteAccessLevel === 'ADMIN') return 'owner'
 
@@ -55,10 +58,14 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
   if (userDelegations.some(d => d.AccessType === 'Contributing')) return 'contributing'
   if (userDelegations.some(d => d.AccessType === 'Read')) return 'reader'
 
-  // 7. Internal with no match -> null
+  // 7. Scope-based grant: project PMScope membership adds reader access
+  // Confidential already returned null at step 2 -- scope does not override it
+  if (project.PMScope && userScopes.has(project.PMScope)) return 'reader'
+
+  // 8. Internal with no match -> null
   if (project.AccessLevel === 'Internal') return null
 
-  // 8. NoRestriction -> reader
+  // 9. NoRestriction -> reader
   if (project.AccessLevel === 'NoRestriction') return 'reader'
 
   return null
@@ -82,14 +89,15 @@ export function canPerformAction(effectiveRole, action) {
  * @param {string} userEmail - Current user's email
  * @param {string} siteAccessLevel - User's group label
  * @param {object[]} allDelegations - All ProjectAccess records
+ * @param {Set<string>} [userScopes] - PMScope values the user belongs to (additive grant)
  * @returns {object[]}
  */
-export function filterProjectsByAccess(projects, userEmail, siteAccessLevel, allDelegations) {
+export function filterProjectsByAccess(projects, userEmail, siteAccessLevel, allDelegations, userScopes = new Set()) {
   return projects.filter(project => {
     const projectDelegations = allDelegations.filter(
       d => d.ProjectUUID === project.UUID
     )
-    const role = resolveEffectiveRole(project, userEmail, siteAccessLevel, projectDelegations)
+    const role = resolveEffectiveRole(project, userEmail, siteAccessLevel, projectDelegations, userScopes)
     return role !== null
   })
 }
@@ -138,5 +146,37 @@ export async function fetchAllDelegations(siteApi) {
     return items
   } catch {
     return []
+  }
+}
+
+/**
+ * Fetch the set of PMScope names that include the given user as a member.
+ * Reads the Scopes list, checks each active scope's Members array for the
+ * user's email (case-insensitive). Returns an empty Set on any error
+ * (fail-open -- grants nothing on failure).
+ * @param {object} siteApi - SiteApi instance
+ * @param {string} userEmail - Email of the current user
+ * @returns {Promise<Set<string>>}
+ */
+export async function fetchUserScopes(siteApi, userEmail) {
+  try {
+    const activeScopes = await loadScopes(siteApi)
+    const email = (userEmail || '').toLowerCase()
+    const scopeNames = new Set()
+
+    for (const scope of activeScopes) {
+      const members = Array.isArray(scope.Members) ? scope.Members : []
+      const isMember = members.some(m => {
+        if (!m || typeof m !== 'object') return false
+        return (m.email || '').toLowerCase() === email
+      })
+      if (isMember) {
+        scopeNames.add(scope.Title)
+      }
+    }
+
+    return scopeNames
+  } catch {
+    return new Set()
   }
 }

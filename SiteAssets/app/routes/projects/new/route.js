@@ -30,7 +30,7 @@ import {
 } from "../../../utils/constants.js";
 
 import { getAppSiteApi } from "../../../utils/app-state.js";
-import { filterProjectsByAccess, fetchAllDelegations } from "../../../utils/access-control.js";
+import { filterProjectsByAccess, fetchAllDelegations, fetchUserScopes } from "../../../utils/access-control.js";
 
 import {
 	createLabeledField,
@@ -46,6 +46,7 @@ import {
 import { generateStructuredId } from '../../../utils/id-generator.js';
 import { consumeRouteContext } from '../../../utils/route-context.js';
 import { loadDefinitions } from '../../../utils/definitions.js';
+import { loadScopes, getScopeOptions } from '../../../utils/scopes.js';
 
 export default defineRoute(async (config) => {
 	config.setRouteTitle("Create Project");
@@ -68,12 +69,14 @@ export default defineRoute(async (config) => {
 
 	const siteApi = new SiteApi();
 	const user = new CurrentUser();
-	const [allPrograms, allProjects, defs, delegations, pmGroupMembers] = await Promise.all([
+	const [allPrograms, allProjects, defs, scopeItems, delegations, pmGroupMembers, userScopes] = await Promise.all([
 		siteApi.list(LIST_PROGRAMS).getItems(),
 		siteApi.list(LIST_PROJECTS).getItems(),
 		loadDefinitions(siteApi),
+		loadScopes(siteApi),
 		fetchAllDelegations(siteApi),
 		siteApi.getGroupUsers('ProjectManagers'),
+		fetchUserScopes(siteApi, user.get('email')),
 	]);
 	const pmMemberOptions = pmGroupMembers.map(m => ({
 		label: m.Title,
@@ -84,8 +87,8 @@ export default defineRoute(async (config) => {
 	const techPhases = defs.get('TechPhases');
 	const projectStatuses = defs.get('ProjectStatuses');
 	const businessLines = defs.get('BusinessLines');
-	const pmScopeOptions = defs.get('PMScope') || [];
-	const accessibleProjects = filterProjectsByAccess(allProjects, user.get('email'), user.accessLevel, delegations);
+	const pmScopeOptions = getScopeOptions(scopeItems);
+	const accessibleProjects = filterProjectsByAccess(allProjects, user.get('email'), user.accessLevel, delegations, userScopes);
 	const umbrellaOptions = [
 		...allPrograms.map(p => ({ label: '[Program] ' + p.Title, value: p.UUID })),
 		...accessibleProjects.map(p => ({ label: '[Project] ' + p.Title, value: p.UUID }))

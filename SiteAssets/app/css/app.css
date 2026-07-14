@@ -320,6 +320,58 @@
 	width: 100%;
 }
 
+/* ---------- Close Project Dialog ---------- */
+
+.app-close-project-dialog.nofbiz__dialog {
+	width: min(420px, 92vw);
+	padding: 0.5em 1.75em 1.5em;
+}
+
+/* Neutralize Dialog's list-item styling for form content */
+.app-close-project-dialog .nofbiz__dialog__content > * {
+	border-top: none;
+	font-size: inherit;
+	font-weight: inherit;
+	color: inherit;
+	padding: var(--space-xs) 0;
+}
+
+.app-close-project-dialog .app-close-project-desc {
+	margin: 0;
+	color: var(--app-text-muted);
+	font-size: var(--font-size-300);
+	line-height: 1.5;
+}
+
+.app-close-project-dialog .form-control,
+.app-close-project-dialog .nofbiz__dateinput {
+	width: 100%;
+}
+
+.app-close-project-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.75rem;
+	margin-top: var(--space-s);
+}
+
+.app-close-project-actions > .nofbiz__button {
+	min-width: 120px;
+}
+
+/* Tighten default Dialog chrome: smaller inter-item gap, no empty footer */
+.app-close-project-dialog .nofbiz__dialog__content {
+	gap: var(--space-sNudge);
+}
+
+.app-close-project-dialog .nofbiz__dialog__header {
+	margin-bottom: var(--space-sNudge);
+}
+
+.app-close-project-dialog .nofbiz__dialog__footer {
+	display: none;
+}
+
 /* ---------- Full-Page Loader ---------- */
 
 .app-fullpage-loader {

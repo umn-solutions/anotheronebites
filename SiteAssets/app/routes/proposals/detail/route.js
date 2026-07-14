@@ -3,8 +3,10 @@ import {
   Card, FormField, SiteApi, Router, Toast, SystemError, PeoplePicker, CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_PROPOSALS } from '../../../utils/constants.js'
+import { createDeleteAction } from '../../../utils/delete-entity.js'
 import { createLabeledField, createFormSection, createFormRow, userIdentityToOption, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
+import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 import { statusClass } from '../../../utils/project-card.js'
 import { setRouteContext } from '../../../utils/route-context.js'
 
@@ -38,8 +40,32 @@ export default defineRoute(async (config) => {
   // Determine user role for view mode
   const isSubmitter = proposal.SubmittedByEmail && proposal.SubmittedByEmail.toLowerCase() === userEmail
   const canValidate = accessLevel === 'ADMIN' || accessLevel === 'PROJECT_MANAGER'
+  const canDelete = accessLevel === 'ADMIN' || isSubmitter
 
   let currentEtag = proposal['odata.etag']
+
+  // Build delete action (used in both paths, gated by canDelete / accessLevel)
+  let deleteDialog = null
+  let deleteTriggerBtn = null
+
+  if (canDelete) {
+    const { triggerButton, dialog } = createDeleteAction({
+      triggerLabel: 'Delete Proposal',
+      dialogTitle: 'Delete Proposal',
+      message: `Delete "${proposal.Title}"?`,
+      warning: 'This proposal will be permanently deleted. This cannot be undone.',
+      confirmLabel: 'Delete Proposal',
+      loadingText: 'Deleting proposal...',
+      successText: 'Proposal deleted',
+      errorText: 'Failed to delete proposal',
+      navigateTo: '/',
+      onConfirm: async () => {
+        await siteApi.list(LIST_PROPOSALS).deleteItem(proposal.Id, currentEtag)
+      }
+    })
+    deleteDialog = dialog
+    deleteTriggerBtn = triggerButton
+  }
 
   function buildValidateButton() {
     if (!canValidate) return null
@@ -82,11 +108,14 @@ export default defineRoute(async (config) => {
 
   if (isSubmitter) {
     // Editable view for the submitter
-    const defs = await loadDefinitions(siteApi)
+    const [defs, scopeItems] = await Promise.all([
+      loadDefinitions(siteApi),
+      loadScopes(siteApi),
+    ])
     const projectTypes = defs.get('ProjectTypes')
     const businessLines = defs.get('BusinessLines')
     const projectStatuses = defs.get('ProjectStatuses')
-    const pmScopeOptions = defs.get('PMScope') || []
+    const pmScopeOptions = getScopeOptions(scopeItems)
 
     const contextField = new FormField({ value: proposal.Context || '' })
     const projectTypeField = new FormField({ value: proposal.ProjectType || '' })
@@ -135,10 +164,14 @@ export default defineRoute(async (config) => {
       createFormRow([
         createLabeledField('PM Scope', new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false, placeholder: 'Select PM Scope' })),
       ]),
-      new Container(validateBtn ? [saveBtn, validateBtn] : [saveBtn], { class: 'app-action-buttons' })
+      new Container([
+        saveBtn,
+        ...(validateBtn ? [validateBtn] : []),
+        ...(deleteTriggerBtn ? [deleteTriggerBtn] : []),
+      ], { class: 'app-action-buttons' })
     ])
 
-    return [pageHeader, form]
+    return [pageHeader, form, ...(deleteDialog ? [deleteDialog] : [])]
   }
 
   // Read-only view with Validate button for ADMIN / PROJECT_MANAGER
@@ -165,10 +198,15 @@ export default defineRoute(async (config) => {
 
   const validateBtn = buildValidateButton()
 
+  const readOnlyActionBtns = [
+    ...(validateBtn ? [validateBtn] : []),
+    ...(accessLevel === 'ADMIN' && deleteTriggerBtn ? [deleteTriggerBtn] : []),
+  ]
+
   const readOnlySection = createFormSection('Proposal Details', [
     ...readOnlyContent,
-    ...(validateBtn ? [new Container([validateBtn], { class: 'app-action-buttons' })] : [])
+    ...(readOnlyActionBtns.length ? [new Container(readOnlyActionBtns, { class: 'app-action-buttons' })] : [])
   ])
 
-  return [pageHeader, readOnlySection]
+  return [pageHeader, readOnlySection, ...(accessLevel === 'ADMIN' && deleteDialog ? [deleteDialog] : [])]
 })

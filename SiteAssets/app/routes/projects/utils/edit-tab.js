@@ -4,7 +4,7 @@ import {
 import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS } from '../../../utils/constants.js'
 import { createLabeledField, createFormSection, createFormRow, createMultiPersonPicker, createGroupMemberPicker, createMultiTargetValuePicker, comboValue, optionToUserIdentity } from '../../../utils/form-helpers.js'
 
-export function createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [] }) {
+export function createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null }) {
   // -- Charter fields --
 
   const projectNameField = new FormField({ value: project.Title || '' })
@@ -198,5 +198,6 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     new Container([saveGovernanceBtn], { class: 'app-charter-actions' }),
     impactSection,
     new Container([saveImpactBtn], { class: 'app-charter-actions' }),
+    ...(deleteButton ? [new Container([deleteButton], { class: 'app-danger-zone' })] : []),
   ])
 }

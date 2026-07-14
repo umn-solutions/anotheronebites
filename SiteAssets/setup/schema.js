@@ -11,6 +11,7 @@ export const SCHEMA = {
     { title: 'TechPhase' },
     { title: 'StartDate' },
     { title: 'ExpectedEndDate' },
+    { title: 'CloseDate' },
     { title: 'GDPRClassification' },
     { title: 'BusinessLine' },
     { title: 'Product' },
@@ -75,6 +76,11 @@ export const SCHEMA = {
 
   Definitions: [
     { title: 'Value', indexed: true },
+    { title: 'IsActive', indexed: true },
+  ],
+
+  Scopes: [
+    { title: 'Members', multiline: true },
     { title: 'IsActive', indexed: true },
   ],
 

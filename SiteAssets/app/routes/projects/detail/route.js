@@ -1,15 +1,17 @@
 import {
   defineRoute, TabGroup, View, Container, Text, LinkButton, Card, SiteApi, Router, SystemError, CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { LIST_PROJECTS, LIST_PROJECT_UPDATES, LIST_PROGRAMS, LIST_ALLOCATIONS } from '../../../utils/constants.js'
+import { LIST_PROJECTS, LIST_PROJECT_UPDATES, LIST_PROGRAMS, LIST_ALLOCATIONS, LIST_PROJECT_ACCESS } from '../../../utils/constants.js'
+import { createDeleteAction, splitUuids } from '../../../utils/delete-entity.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
+import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 import { createUpdatesTab } from '../utils/updates-tab.js'
 import { createOverviewTab } from '../utils/overview-tab.js'
 import { createEditTab } from '../utils/edit-tab.js'
 import { createAccessTab } from '../utils/access-tab.js'
 import { createCapacityTab } from '../utils/capacity-tab.js'
 import { statusClass } from '../../../utils/project-card.js'
-import { resolveEffectiveRole, filterProjectsByAccess, fetchAllDelegations, canPerformAction } from '../../../utils/access-control.js'
+import { resolveEffectiveRole, filterProjectsByAccess, fetchAllDelegations, fetchUserScopes, canPerformAction } from '../../../utils/access-control.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
 
 export default defineRoute(async (config) => {
@@ -20,15 +22,17 @@ export default defineRoute(async (config) => {
     throw new SystemError('MissingUUID', 'No project UUID provided in query params')
   }
 
-  // Fetch project, updates, programs, definitions, and delegations in parallel
-  let [projects, updates, programs, defs, delegations, allocations, pmGroupMembers] = await Promise.all([
+  // Fetch project, updates, programs, definitions, delegations, and user scopes in parallel
+  let [projects, updates, programs, defs, scopeItems, delegations, allocations, pmGroupMembers, userScopes] = await Promise.all([
     siteApi.list(LIST_PROJECTS).getItemByUUID(uuid),
     siteApi.list(LIST_PROJECT_UPDATES).getItems({ ProjectUUID: uuid }),
     siteApi.list(LIST_PROGRAMS).getItems(),
     loadDefinitions(siteApi),
+    loadScopes(siteApi),
     fetchAllDelegations(siteApi),
     siteApi.list(LIST_ALLOCATIONS).getItems({ ProjectUUID: uuid }),
     siteApi.getGroupUsers('ProjectManagers'),
+    fetchUserScopes(siteApi, new CurrentUser().get('email')),
   ])
 
   const pmMemberOptions = pmGroupMembers.map(m => ({
@@ -44,7 +48,7 @@ export default defineRoute(async (config) => {
   // Resolve effective role and gate access
   const user = new CurrentUser()
   const projectDelegations = delegations.filter(d => d.ProjectUUID === uuid)
-  const effectiveRole = resolveEffectiveRole(project, user.get('email'), user.accessLevel, projectDelegations)
+  const effectiveRole = resolveEffectiveRole(project, user.get('email'), user.accessLevel, projectDelegations, userScopes)
 
   if (!effectiveRole) {
     throw new SystemError('AccessDenied', 'You do not have access to this project', { breaksFlow: true })
@@ -52,7 +56,7 @@ export default defineRoute(async (config) => {
 
   // Build umbrella options from programs and accessible projects only
   const allProjectsList = await siteApi.list(LIST_PROJECTS).getItems()
-  const accessibleProjects = filterProjectsByAccess(allProjectsList, user.get('email'), user.accessLevel, delegations)
+  const accessibleProjects = filterProjectsByAccess(allProjectsList, user.get('email'), user.accessLevel, delegations, userScopes)
   const umbrellaOptions = [
     ...programs.map(p => ({ label: '[Program] ' + p.Title, value: p.UUID })),
     ...accessibleProjects.map(p => ({ label: '[Project] ' + p.Title, value: p.UUID }))
@@ -69,19 +73,73 @@ export default defineRoute(async (config) => {
   const businessLines = defs.get('BusinessLines')
   const targetTypes = defs.get('TargetTypes')
   const targetValueTypes = defs.get('TargetValueTypes')
-  const pmScopeOptions = defs.get('PMScope') || []
+  const pmScopeOptions = getScopeOptions(scopeItems)
 
   // ------------------------------------------------------------------
   // Project Log
   // ------------------------------------------------------------------
 
-  const { view: updatesTab, dialog: newUpdateDialog } = createUpdatesTab({ project, updates, siteApi, uuid, effectiveRole })
+  const { view: updatesTab, dialog: newUpdateDialog, closeDialog } = createUpdatesTab({ project, updates, siteApi, uuid, effectiveRole })
 
   // ------------------------------------------------------------------
   // Tab 5: Edit (locked preview)
   // ------------------------------------------------------------------
 
-  const editTab = createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions })
+  // Gate: build delete action only for owners and managers
+  let deleteDialog = null
+  let deleteTriggerBtn = null
+
+  if (effectiveRole === 'owner' || effectiveRole === 'manager') {
+    const childUpdates = updates
+    const childAccess = projectDelegations
+    const childAllocs = allocations
+    const referringProjects = allProjectsList.filter(p =>
+      p.UUID !== project.UUID && (
+        splitUuids(p.LinkedPrograms).includes(project.UUID) ||
+        p.UmbrellaProgram === project.Title
+      )
+    )
+    const referringPrograms = programs.filter(p =>
+      splitUuids(p.LinkedPrograms).includes(project.UUID) ||
+      p.UmbrellaProgram === project.Title
+    )
+
+    const totalLinked = referringProjects.length + referringPrograms.length
+    const warningText = `${childUpdates.length} update(s), ${childAccess.length} delegation(s), ${childAllocs.length} allocation(s) will be permanently deleted, and ${totalLinked} linked item(s) unlinked. This cannot be undone.`
+
+    const { triggerButton, dialog } = createDeleteAction({
+      triggerLabel: 'Delete Project',
+      dialogTitle: 'Delete Project',
+      message: `Delete "${project.Title}"?`,
+      warning: warningText,
+      confirmLabel: 'Delete Project',
+      loadingText: 'Deleting project...',
+      successText: 'Project deleted',
+      errorText: 'Failed to delete project',
+      navigateTo: '/',
+      onConfirm: async () => {
+        await Promise.all([
+          ...childUpdates.map(u => siteApi.list(LIST_PROJECT_UPDATES).deleteItem(u.Id, u['odata.etag'])),
+          ...childAccess.map(a => siteApi.list(LIST_PROJECT_ACCESS).deleteItem(a.Id, a['odata.etag'])),
+          ...childAllocs.map(a => siteApi.list(LIST_ALLOCATIONS).deleteItem(a.Id, a['odata.etag'])),
+          ...referringProjects.map(p => siteApi.list(LIST_PROJECTS).updateItem(p.Id, {
+            LinkedPrograms: splitUuids(p.LinkedPrograms).filter(id => id !== project.UUID).join(';'),
+            UmbrellaProgram: p.UmbrellaProgram === project.Title ? '' : p.UmbrellaProgram
+          }, p['odata.etag'])),
+          ...referringPrograms.map(p => siteApi.list(LIST_PROGRAMS).updateItem(p.Id, {
+            LinkedPrograms: splitUuids(p.LinkedPrograms).filter(id => id !== project.UUID).join(';'),
+            UmbrellaProgram: p.UmbrellaProgram === project.Title ? '' : p.UmbrellaProgram
+          }, p['odata.etag'])),
+        ])
+        await siteApi.list(LIST_PROJECTS).deleteItem(project.Id, project['odata.etag'])
+      }
+    })
+
+    deleteDialog = dialog
+    deleteTriggerBtn = triggerButton
+  }
+
+  const editTab = createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions, deleteButton: deleteTriggerBtn })
 
   // ------------------------------------------------------------------
   // Tab 6: Umbrella View (D3 tree visualization)
@@ -232,5 +290,5 @@ export default defineRoute(async (config) => {
     new LinkButton('Back to Home', '/', { variant: 'secondary' })
   ], { class: 'app-detail-header app-detail-header-card' })
 
-  return [pageHeader, layoutContainer, newUpdateDialog]
+  return [pageHeader, layoutContainer, newUpdateDialog, ...(closeDialog ? [closeDialog] : []), ...(deleteDialog ? [deleteDialog] : [])]
 })

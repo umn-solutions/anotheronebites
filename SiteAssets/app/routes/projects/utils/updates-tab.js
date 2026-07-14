@@ -168,6 +168,7 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
   })
 
   const canAddUpdate = canPerformAction(effectiveRole, 'addUpdate')
+  const canClose = canPerformAction(effectiveRole, 'close')
 
   const newUpdateBtn = canAddUpdate
     ? new Button('New Update', {
@@ -176,9 +177,85 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
       })
     : null
 
-  // Toolbar: search, date filters, sort toggle, conditionally new update button
+  // Close Project dialog
+  let closeDialog = null
+  let closeProjectBtn = null
+
+  if (canClose) {
+    const closeDateField = new FormField({ value: new Date().toISOString().split('T')[0] })
+
+    const confirmCloseBtn = new Button('Confirm Close', {
+      variant: 'primary',
+      onClickHandler: async () => {
+        const closeDate = closeDateField.value
+        if (!closeDate) {
+          Toast.error('Close date is required')
+          return
+        }
+        confirmCloseBtn.isLoading = true
+        const loading = Toast.loading('Closing project...')
+        try {
+          const updatedItems = await siteApi.list(LIST_PROJECTS).updateItem(
+            project.Id,
+            { Status: 'Completed', CloseDate: closeDate },
+            project['odata.etag']
+          )
+          // Refresh local state so subsequent operations use the correct etag
+          if (updatedItems && updatedItems[0] && updatedItems[0]['odata.etag']) {
+            project['odata.etag'] = updatedItems[0]['odata.etag']
+          } else {
+            const refreshed = await siteApi.list(LIST_PROJECTS).getItemByUUID(uuid)
+            if (refreshed && refreshed[0]) {
+              project['odata.etag'] = refreshed[0]['odata.etag']
+            }
+          }
+          project.Status = 'Completed'
+          project.CloseDate = closeDate
+          loading.success('Project closed')
+          closeDialog.close()
+          // Swap the close button to a disabled "Project Closed" state
+          closeProjectBtn.isDisabled = true
+          closeProjectBtn.children = [new Text('Project Closed')]
+        } catch {
+          loading.error('Failed to close project')
+        } finally {
+          if (confirmCloseBtn.isAlive) confirmCloseBtn.isLoading = false
+        }
+      }
+    })
+
+    const cancelCloseBtn = new Button('Cancel', {
+      variant: 'secondary',
+      onClickHandler: () => closeDialog.close()
+    })
+
+    closeDialog = new Dialog({
+      closeOnFocusLoss: true,
+      class: 'app-close-project-dialog',
+      title: 'Close Project',
+      content: [
+        new Text(
+          'Closing this project marks it as Completed and records the close date. This action can be reversed by updating the status.',
+          { type: 'p', class: 'app-close-project-desc' }
+        ),
+        createLabeledField('Close Date', new DateInput(closeDateField, { format: 'yyyy-mm-dd' })),
+        new Container([cancelCloseBtn, confirmCloseBtn], { class: 'app-close-project-actions' })
+      ]
+    })
+
+    const isAlreadyClosed = project.Status === 'Completed'
+    closeProjectBtn = isAlreadyClosed
+      ? new Button('Project Closed', { variant: 'secondary', isDisabled: true })
+      : new Button('Close Project', {
+          variant: 'danger',
+          onClickHandler: () => closeDialog.open()
+        })
+  }
+
+  // Toolbar: search, date filters, sort toggle, conditionally new update and close buttons
   const toolbarActions = [sortBtn]
   if (newUpdateBtn) toolbarActions.push(newUpdateBtn)
+  if (closeProjectBtn) toolbarActions.push(closeProjectBtn)
 
   const updatesToolbar = new Container([
     createLabeledField('Search', searchInput),
@@ -192,5 +269,5 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
     updatesContainer
   ], { class: 'app-updates-tab' })
 
-  return { view: updatesTab, dialog: newUpdateDialog }
+  return { view: updatesTab, dialog: newUpdateDialog, closeDialog }
 }

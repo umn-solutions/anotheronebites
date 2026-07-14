@@ -1,21 +1,27 @@
 import { d3 } from '../libs/nofbiz/nofbiz.analytics.js'
 
+const MAX_LEVELS_UP = 2
+const MAX_LEVELS_DOWN = 10
+
 /**
  * Build tree data from the current node and all available nodes.
- * Traverses one level up (to parent) and one level down (children).
- * Siblings (other children of the same parent) are also included.
+ *
+ * Upward: walks up to MAX_LEVELS_UP (2) ancestors above the current node. The
+ * topmost included ancestor becomes the returned tree root. At each ancestor
+ * level, that ancestor's other children (not on the path toward currentNode)
+ * are attached as leaf nodes (no descendants expanded).
+ *
+ * Downward: recurses descendants of the current node up to MAX_LEVELS_DOWN
+ * (10) levels deep. Descendants beyond that depth are omitted.
+ *
+ * Cycle / self-parent guard: a visited UUID set prevents infinite loops caused
+ * by cycles or self-referencing LinkedPrograms values.
  *
  * @param {object} currentNode - The node to center the tree on. Must have UUID, Title, LinkedPrograms, _type.
  * @param {object[]} allNodes - All nodes (projects + programs), each tagged with _type.
  * @returns {object} Root node of the tree in D3 hierarchy-compatible format.
  */
 export function buildTreeData(currentNode, allNodes) {
-  const parent = allNodes.find(n => n.UUID === currentNode.LinkedPrograms) || null
-  const children = allNodes.filter(n => n.LinkedPrograms === currentNode.UUID)
-  const siblings = parent
-    ? allNodes.filter(n => n.LinkedPrograms === parent.UUID && n.UUID !== currentNode.UUID)
-    : []
-
   const toNode = (item, isCurrent = false, nodeChildren = []) => ({
     id: item.UUID,
     title: item.Title,
@@ -24,15 +30,50 @@ export function buildTreeData(currentNode, allNodes) {
     children: nodeChildren
   })
 
-  const currentEntry = toNode(currentNode, true, children.map(c => toNode(c)))
-
-  if (parent) {
-    return toNode(parent, false, [
-      ...siblings.map(s => toNode(s)),
-      currentEntry
-    ])
+  // Recursively build the downward subtree for a node, bounded by depth.
+  // visited is a Set of UUIDs already on the ancestor chain to guard against cycles.
+  function buildDown(node, depth, visited) {
+    if (depth <= 0) return toNode(node)
+    const nextVisited = new Set(visited)
+    nextVisited.add(node.UUID)
+    const kids = allNodes.filter(
+      n => n.LinkedPrograms === node.UUID && !nextVisited.has(n.UUID)
+    )
+    return toNode(node, false, kids.map(c => buildDown(c, depth - 1, nextVisited)))
   }
-  return currentEntry
+
+  // Build the current node's downward subtree (marks isCurrent = true at root).
+  const ancestorVisited = new Set([currentNode.UUID])
+  const kidsOfCurrent = allNodes.filter(
+    n => n.LinkedPrograms === currentNode.UUID && !ancestorVisited.has(n.UUID)
+  )
+  let subtree = toNode(
+    currentNode,
+    true,
+    kidsOfCurrent.map(c => buildDown(c, MAX_LEVELS_DOWN - 1, ancestorVisited))
+  )
+
+  // Walk upward up to MAX_LEVELS_UP, wrapping the accumulated subtree at each step.
+  let node = currentNode
+  const upVisited = new Set([currentNode.UUID])
+  for (let level = 0; level < MAX_LEVELS_UP; level++) {
+    if (!node.LinkedPrograms || node.LinkedPrograms === node.UUID) break
+    const parent = allNodes.find(n => n.UUID === node.LinkedPrograms) || null
+    if (!parent || upVisited.has(parent.UUID)) break
+    upVisited.add(parent.UUID)
+
+    // Other children of this parent become leaf nodes (not expanded).
+    const siblings = allNodes.filter(
+      n => n.LinkedPrograms === parent.UUID && n.UUID !== node.UUID
+    )
+    subtree = toNode(parent, false, [
+      ...siblings.map(s => toNode(s)),
+      subtree
+    ])
+    node = parent
+  }
+
+  return subtree
 }
 
 /**

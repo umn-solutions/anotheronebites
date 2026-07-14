@@ -4,16 +4,20 @@ import { createLabeledField, createFormSection, optionToUserIdentity, comboValue
 import { generateStructuredId } from '../../../utils/id-generator.js'
 import { setRouteContext } from '../../../utils/route-context.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
+import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 
 export default defineRoute(async (config) => {
   config.setRouteTitle('Create Proposal')
 
   const siteApi = new SiteApi()
-  const defs = await loadDefinitions(siteApi)
+  const [defs, scopeItems] = await Promise.all([
+    loadDefinitions(siteApi),
+    loadScopes(siteApi),
+  ])
   const projectTypes = defs.get('ProjectTypes')
   const businessLines = defs.get('BusinessLines')
   const projectStatuses = defs.get('ProjectStatuses')
-  const pmScopeOptions = defs.get('PMScope') || []
+  const pmScopeOptions = getScopeOptions(scopeItems)
 
   const titleField = new FormField({ value: '', validatorCallback: (v) => v.length > 0 })
   const contextField = new FormField({ value: '' })

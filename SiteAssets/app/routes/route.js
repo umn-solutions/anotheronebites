@@ -20,6 +20,7 @@ import {
 	APP_PERMISSIONS,
 } from "../utils/constants.js";
 import { loadDefinitions } from "../utils/definitions.js";
+import { loadScopes, getScopeOptions } from "../utils/scopes.js";
 import {
 	createProjectCard,
 	createProgramCard,
@@ -27,7 +28,7 @@ import {
 } from "../utils/project-card.js";
 import { buildSearchQuery, applyFilters } from "../utils/search.js";
 import { getAppRoles, getAppSiteApi } from "../utils/app-state.js";
-import { filterProjectsByAccess, filterProposalsByAccess, fetchAllDelegations } from "../utils/access-control.js";
+import { filterProjectsByAccess, filterProposalsByAccess, fetchAllDelegations, fetchUserScopes } from "../utils/access-control.js";
 
 export default defineRoute(async (config) => {
 	config.setRouteTitle("Management Platform");
@@ -37,10 +38,13 @@ export default defineRoute(async (config) => {
 	const siteApi = getAppSiteApi();
 	const canAccessAdmin = roles.canAccess("adminArea", APP_PERMISSIONS);
 
-	const defs = await loadDefinitions(siteApi);
+	const [defs, scopeItems] = await Promise.all([
+		loadDefinitions(siteApi),
+		loadScopes(siteApi),
+	]);
 	const projectStatuses = defs.get('ProjectStatuses');
 	const projectTypes = defs.get('ProjectTypes');
-	const pmScopeOptions = defs.get('PMScope') || [];
+	const pmScopeOptions = getScopeOptions(scopeItems);
 
 	// Card factory -- dispatch on _type tag
 	function buildCards(items) {
@@ -91,16 +95,17 @@ export default defineRoute(async (config) => {
 		activate();
 		const loading = Toast.loading("Searching...");
 		try {
-			const [projects, programs, proposals, delegations] = await Promise.all([
+			const [projects, programs, proposals, delegations, userScopes] = await Promise.all([
 				siteApi.list(LIST_PROJECTS).getItems(buildSearchQuery(searchText, "project")),
 				siteApi.list(LIST_PROGRAMS).getItems(buildSearchQuery(searchText, "program")),
 				siteApi.list(LIST_PROPOSALS).getItems(buildSearchQuery(searchText, "proposal")),
 				fetchAllDelegations(siteApi),
+				fetchUserScopes(siteApi, user.get("email")),
 			]);
 
 			const userEmail = user.get("email");
 			const accessLevel = user.accessLevel;
-			const filteredProjects = filterProjectsByAccess(projects, userEmail, accessLevel, delegations);
+			const filteredProjects = filterProjectsByAccess(projects, userEmail, accessLevel, delegations, userScopes);
 			const filteredProposals = filterProposalsByAccess(proposals, userEmail, accessLevel);
 
 			currentResults = [
@@ -135,7 +140,7 @@ export default defineRoute(async (config) => {
 		itemTypeCombo.isDisabled = !hasData;
 		statusCombo.isDisabled = !hasData;
 		typeCombo.isDisabled = !hasData;
-		pmScopeCombo.isDisabled = !hasData;
+		if (canAccessAdmin) pmScopeCombo.isDisabled = !hasData;
 	}
 
 	const debouncedSearch = debounce(() => performSearch(searchField.value), 500);
@@ -214,7 +219,7 @@ export default defineRoute(async (config) => {
 			itemTypeCombo,
 			statusCombo,
 			typeCombo,
-			pmScopeCombo,
+			...(canAccessAdmin ? [pmScopeCombo] : []),
 			new Button("Question Based Filters", { isDisabled: true }),
 		],
 		{ class: "app-toolbar-extras" },
@@ -283,7 +288,7 @@ export default defineRoute(async (config) => {
 	itemTypeFilter.subscribe(renderResults);
 	statusFilter.subscribe(renderResults);
 	typeFilter.subscribe(renderResults);
-	pmScopeFilter.subscribe(renderResults);
+	if (canAccessAdmin) pmScopeFilter.subscribe(renderResults);
 
 	return [wrapper];
 });

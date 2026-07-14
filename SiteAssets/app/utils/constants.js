@@ -5,6 +5,7 @@ export const LIST_PROGRAMS = 'Programs'
 export const LIST_PROJECT_UPDATES = 'ProjectUpdates'
 export const LIST_PROPOSALS = 'Proposals'
 export const LIST_DEFINITIONS = 'Definitions'
+export const LIST_SCOPES = 'Scopes'
 
 // Dropdown Datasets
 

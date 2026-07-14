@@ -80,14 +80,17 @@ export function createOverviewTab({ project, updates }) {
   // Dates & Scope Section
   // -------------------------------------------------------------------
 
-  const datesSection = createFormSection('Dates & Scope', [
+  const datesRows = [
     readOnlyRow('Role', project.Role),
     readOnlyRow('Start Date', project.StartDate),
     readOnlyRow('Expected End Date', project.ExpectedEndDate),
+    project.CloseDate ? readOnlyRow('Close Date', project.CloseDate) : null,
     readOnlyRow('Scope/Out of Scope', project.Scope),
     readOnlyRow('Product', project.Product),
     readOnlyRow('Umbrella Program', project.UmbrellaProgram)
-  ])
+  ].filter(Boolean)
+
+  const datesSection = createFormSection('Dates & Scope', datesRows)
 
   // -------------------------------------------------------------------
   // Impact & Targets Section

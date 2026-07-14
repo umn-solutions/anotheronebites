@@ -1,7 +1,7 @@
 import {
   defineRoute, ViewSwitcher, View, Container, Text, Card, LinkButton, Button, SiteApi, StyleResource, SystemError
 } from '../../libs/nofbiz/nofbiz.base.js'
-import { LIST_DEFINITIONS, APP_PERMISSIONS } from '../../utils/constants.js'
+import { LIST_DEFINITIONS, LIST_SCOPES, APP_PERMISSIONS } from '../../utils/constants.js'
 import { getAppRoles } from '../../utils/app-state.js'
 import { createDefinitionsTab } from './utils/definitions-tab.js'
 import { createTeamTab } from './utils/team-tab.js'
@@ -25,14 +25,15 @@ export default defineRoute(async (config) => {
     ['BusinessLines', 'Business Lines'],
     ['TargetTypes', 'Target Types'],
     ['TargetValueTypes', 'Target Value Types'],
-    ['PMScope', 'PM Scope'],
   ]
 
   const siteApi = new SiteApi()
   const listApi = siteApi.list(LIST_DEFINITIONS)
-  const [initialItems, pmGroupMembers] = await Promise.all([
+  const scopesListApi = siteApi.list(LIST_SCOPES)
+  const [initialItems, pmGroupMembers, scopeItems] = await Promise.all([
     listApi.getItems(),
     siteApi.getGroupUsers('ProjectManagers'),
+    scopesListApi.getItems(),
   ])
 
   const { tabGroup: definitionsTabGroup } = createDefinitionsTab({
@@ -42,7 +43,7 @@ export default defineRoute(async (config) => {
   })
 
   const teamView = await createTeamTab({ siteApi, pmGroupMembers })
-  const scopesView = createScopesTab()
+  const scopesView = createScopesTab({ listApi: scopesListApi, scopeItems })
 
   // ------------------------------------------------------------------
   // Sidebar Navigation

@@ -1,13 +1,15 @@
 import {
   defineRoute, TabGroup, View, Container, Text, TextInput, TextArea, ComboBox,
-  Button, FormField, Card, SiteApi, Router, Toast, PeoplePicker, SystemError, Loader, LinkButton,
+  Button, FormField, Card, SiteApi, Router, Toast, PeoplePicker, SystemError, LinkButton,
   CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_PROGRAMS, LIST_PROJECTS } from '../../../utils/constants.js'
-import { fetchAllDelegations, filterProjectsByAccess } from '../../../utils/access-control.js'
+import { createDeleteAction, splitUuids } from '../../../utils/delete-entity.js'
+import { fetchAllDelegations, filterProjectsByAccess, fetchUserScopes } from '../../../utils/access-control.js'
 import { createLabeledField, createFormSection, createMultiPersonPicker, userIdentityToOption, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
+import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 
 export default defineRoute(async (config) => {
   const siteApi = new SiteApi()
@@ -17,16 +19,18 @@ export default defineRoute(async (config) => {
     throw new SystemError('MissingUUID', 'No program UUID provided in query params')
   }
 
-  const [allPrograms, allProjects, delegations, defs] = await Promise.all([
+  const [allPrograms, allProjects, delegations, defs, scopeItems, userScopes] = await Promise.all([
     siteApi.list(LIST_PROGRAMS).getItems(),
     siteApi.list(LIST_PROJECTS).getItems(),
     fetchAllDelegations(siteApi),
     loadDefinitions(siteApi),
+    loadScopes(siteApi),
+    fetchUserScopes(siteApi, new CurrentUser().get('email')),
   ])
-  const pmScopeOptions = defs.get('PMScope') || []
+  const pmScopeOptions = getScopeOptions(scopeItems)
 
   const user = new CurrentUser()
-  const accessibleProjects = filterProjectsByAccess(allProjects, user.get('email'), user.accessLevel, delegations)
+  const accessibleProjects = filterProjectsByAccess(allProjects, user.get('email'), user.accessLevel, delegations, userScopes)
 
   const program = allPrograms.find(p => p.UUID === uuid)
   if (!program) {
@@ -137,6 +141,59 @@ export default defineRoute(async (config) => {
     }
   })
 
+  // Admin-only: Delete Program with linked-item cleanup
+  let deleteDialog = null
+  let deleteTriggerBtn = null
+
+  if (user.accessLevel === 'ADMIN') {
+    const linkedProjects = allProjects.filter(p =>
+      splitUuids(p.LinkedPrograms).includes(program.UUID) || p.UmbrellaProgram === program.Title
+    )
+    const subPrograms = allPrograms.filter(p =>
+      p.UUID !== program.UUID && p.LinkedPrograms === program.UUID
+    )
+
+    const linkedCount = linkedProjects.length
+    const subCount = subPrograms.length
+    const linkWarning = (linkedCount === 0 && subCount === 0)
+      ? 'This program has no linked items.'
+      : `${linkedCount} linked project(s) and ${subCount} sub-program(s) will be unlinked (their program link cleared) but will NOT be deleted.`
+
+    const { triggerButton, dialog } = createDeleteAction({
+      triggerLabel: 'Delete Program',
+      dialogTitle: 'Delete Program',
+      message: `Delete "${program.Title}"?`,
+      warning: linkWarning,
+      confirmLabel: 'Delete Program',
+      loadingText: 'Deleting program...',
+      successText: 'Program deleted',
+      errorText: 'Failed to delete program',
+      navigateTo: '/',
+      onConfirm: async () => {
+        const projectUpdates = linkedProjects.map(proj => {
+          const remainingUuids = splitUuids(proj.LinkedPrograms)
+            .filter(id => id !== program.UUID)
+            .join(';')
+          return siteApi.list(LIST_PROJECTS).updateItem(proj.Id, {
+            LinkedPrograms: remainingUuids,
+            UmbrellaProgram: proj.UmbrellaProgram === program.Title ? '' : proj.UmbrellaProgram
+          }, proj['odata.etag'])
+        })
+        const subProgramUpdates = subPrograms.map(subProg =>
+          siteApi.list(LIST_PROGRAMS).updateItem(subProg.Id, {
+            LinkedPrograms: '',
+            UmbrellaProgram: subProg.UmbrellaProgram === program.Title ? '' : subProg.UmbrellaProgram
+          }, subProg['odata.etag'])
+        )
+        await Promise.all([...projectUpdates, ...subProgramUpdates])
+        await siteApi.list(LIST_PROGRAMS).deleteItem(program.Id, program['odata.etag'])
+      }
+    })
+
+    deleteDialog = dialog
+    deleteTriggerBtn = triggerButton
+  }
+
   const editTab = new View([
     createFormSection('Program Details', [
       createLabeledField('Program Name', new TextInput(programNameField), true),
@@ -146,7 +203,8 @@ export default defineRoute(async (config) => {
       createMultiPersonPicker('Stakeholders', stakeholdersEditField),
       createLabeledField('PM Scope', new ComboBox(pmScopeEditField, pmScopeOptions, { allowFiltering: false, placeholder: 'Select PM Scope' })),
     ]),
-    saveEditBtn
+    saveEditBtn,
+    ...(deleteTriggerBtn ? [deleteTriggerBtn] : [])
   ])
 
   // ----------------------------------------------------------------
@@ -194,8 +252,8 @@ export default defineRoute(async (config) => {
       new Text(program.Title, { type: 'h2' }),
       new Text('Program', { type: 'span', class: 'app-card-type-label' }),
     ], { class: 'app-detail-title' }),
-    new LinkButton('Back to Home', '/', { variant: 'secondary' })
+    new LinkButton('Back to Home', '/', { variant: 'secondary' }),
   ], { class: 'app-detail-header app-detail-header-card' })
 
-  return [pageHeader, tabGroup]
+  return [pageHeader, tabGroup, ...(deleteDialog ? [deleteDialog] : [])]
 })

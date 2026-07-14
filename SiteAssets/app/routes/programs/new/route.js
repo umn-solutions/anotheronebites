@@ -3,19 +3,21 @@ import { LIST_PROGRAMS } from '../../../utils/constants.js'
 import { createLabeledField, createFormSection, createMultiPersonPicker, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { generateStructuredId } from '../../../utils/id-generator.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
+import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 
 export default defineRoute(async (config) => {
   config.setRouteTitle('Create Program')
 
   const siteApi = new SiteApi()
 
-  // Fetch existing programs for parent selector and definitions
-  const [allPrograms, defs] = await Promise.all([
+  // Fetch existing programs for parent selector, definitions, and scopes
+  const [allPrograms, defs, scopeItems] = await Promise.all([
     siteApi.list(LIST_PROGRAMS).getItems(),
     loadDefinitions(siteApi),
+    loadScopes(siteApi),
   ])
   const umbrellaOptions = allPrograms.map(p => ({ label: p.Title, value: p.UUID }))
-  const pmScopeOptions = defs.get('PMScope') || []
+  const pmScopeOptions = getScopeOptions(scopeItems)
 
   // Form fields
   const programNameField = new FormField({
