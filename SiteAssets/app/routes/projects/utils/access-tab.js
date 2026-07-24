@@ -59,6 +59,9 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
             { AccessLevel: comboValue(accessLevelField.value) },
             project['odata.etag']
           )
+          // MERGE returns no etag; re-fetch so a second save uses a fresh one
+          const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(uuid)
+          if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
           loading.success('Access level saved')
         } catch {
           loading.error('Failed to save access level')
@@ -170,8 +173,10 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
             GrantedBy: JSON.stringify({ email: currentUserEmail, displayName: currentUserName }),
             GrantedByEmail: currentUserEmail,
           }
-          const created = await siteApi.list(LIST_PROJECT_ACCESS).createItem(data)
-          currentDelegations.push(created)
+          await siteApi.list(LIST_PROJECT_ACCESS).createItem(data)
+          // createItem (odata=nometadata) returns no etag; re-fetch parsed rows
+          // so the new delegation's Remove button has a valid etag.
+          currentDelegations = await siteApi.list(LIST_PROJECT_ACCESS).getItems({ ProjectUUID: uuid })
           renderDelegationList()
           loading.success('Access granted')
           personPicker.clearSelection()
@@ -179,7 +184,7 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
         } catch {
           loading.error('Failed to grant access')
         } finally {
-          grantBtn.isLoading = false
+          if (grantBtn.isAlive) grantBtn.isLoading = false
         }
       }
     })

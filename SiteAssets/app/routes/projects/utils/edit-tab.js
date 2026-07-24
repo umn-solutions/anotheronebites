@@ -125,6 +125,9 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
         const loading = Toast.loading('Saving...')
         try {
           await siteApi.list('Projects').updateItem(project.Id, buildData(), project['odata.etag'])
+          // MERGE returns no etag; re-fetch so the next save on this project uses a fresh one
+          const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+          if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
           loading.success('Saved')
           if (afterSave) {
             try { await afterSave() } catch { /* best-effort */ }
@@ -143,7 +146,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     const umbrellaLabel = umbrellaField.value?.label || ''
     return {
       Title: projectNameField.value,
-      ProjectManager: optionToUserIdentity(projectManagerField.value),
+      ProjectManager: optionToUserIdentity(projectManagerField.value) || '',
       ProjectManagerEmail: optionToUserIdentity(projectManagerField.value)?.email || '',
       Context: contextField.value,
       Objectives: objectivesField.value,
@@ -169,7 +172,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   const saveGovernanceBtn = createSaveButton('Save Governance', () => ({
     BusinessLine: comboValue(businessLineField.value),
     Product: productField.value,
-    Sponsor: optionToUserIdentity(sponsorField.value),
+    Sponsor: optionToUserIdentity(sponsorField.value) || '',
     Stakeholders: stakeholdersField.value,
     PMMembers: pmMembersField.value,
     PMMembersEmail: (pmMembersField.value || []).map(ui => ui.email).join(';'),

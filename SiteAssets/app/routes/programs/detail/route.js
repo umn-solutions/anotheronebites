@@ -126,12 +126,15 @@ export default defineRoute(async (config) => {
         await siteApi.list(LIST_PROGRAMS).updateItem(program.Id, {
           Title: programNameField.value,
           Context: contextEditField.value,
-          ProgramSponsor: optionToUserIdentity(sponsorEditField.value),
+          ProgramSponsor: optionToUserIdentity(sponsorEditField.value) || '',
           Stakeholders: stakeholdersEditField.value,
           UmbrellaProgram: umbrellaEditField.value?.label || '',
           LinkedPrograms: umbrellaEditField.value?.value || '',
           PMScope: comboValue(pmScopeEditField.value),
         }, program['odata.etag'])
+        // MERGE returns no etag; re-fetch so a second save uses a fresh one
+        const [fresh] = await siteApi.list(LIST_PROGRAMS).getItemByUUID(program.UUID)
+        if (fresh && fresh['odata.etag']) program['odata.etag'] = fresh['odata.etag']
         loading.success('Program saved')
       } catch {
         loading.error('Failed to save program')

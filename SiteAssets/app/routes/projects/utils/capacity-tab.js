@@ -77,13 +77,12 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
             { AllocationPercent: editField.value },
             allocation['odata.etag']
           )
-          allocation.AllocationPercent = editField.value
           loading.success('Allocation saved')
-          refreshTotal()
+          await reloadAllocations()
         } catch {
           loading.error('Failed to save allocation')
         } finally {
-          saveBtn.isLoading = false
+          if (saveBtn.isAlive) saveBtn.isLoading = false
         }
       }
     })
@@ -115,6 +114,15 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
 
   renderAllocationList()
 
+  // Re-fetch parsed rows (with etags) after any write -- createItem/updateItem
+  // responses use odata=nometadata and carry no etag, so local state must be
+  // reloaded via getItems to keep subsequent edits/removes valid.
+  async function reloadAllocations() {
+    currentAllocations = await siteApi.list(LIST_ALLOCATIONS).getItems({ ProjectUUID: uuid })
+    renderAllocationList()
+    refreshTotal()
+  }
+
   // -------------------------------------------------------------------
   // Add own allocation (when user is PM but has no existing allocation)
   // -------------------------------------------------------------------
@@ -145,10 +153,8 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
             UpdatedBy: JSON.stringify({ email: user.get('email'), displayName: user.get('displayName') }),
             UpdatedByEmail: user.get('email'),
           }
-          const created = await siteApi.list(LIST_ALLOCATIONS).createItem(data)
-          currentAllocations.push(created)
-          renderAllocationList()
-          refreshTotal()
+          await siteApi.list(LIST_ALLOCATIONS).createItem(data)
+          await reloadAllocations()
           loading.success('Allocation added')
           // Hide the add section after successful creation
           if (addSectionContainer) {
@@ -157,7 +163,7 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
         } catch {
           loading.error('Failed to add allocation')
         } finally {
-          addBtn.isLoading = false
+          if (addBtn.isAlive) addBtn.isLoading = false
         }
       }
     })

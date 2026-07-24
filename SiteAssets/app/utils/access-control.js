@@ -21,13 +21,16 @@ const PERMISSION_MAP = {
  * 6. Read delegation -> 'reader'
  * 7. Scope membership (project PMScope in userScopes) -> 'reader' (additive, not on Confidential)
  * 8. Internal + no prior match -> null
- * 9. NoRestriction -> 'reader'
+ * 9. NoRestriction -> 'reader', UNLESS the project carries a scope: a public+scoped
+ *    project is visible only to its scope members (ADMIN, direct members, and
+ *    delegated users still bypass). PM-group membership does NOT bypass this filter.
  *
  * @param {object} project - Project record with AccessLevel, PMMembersEmail, SubmittedByEmail
  * @param {string} userEmail - Current user's email
  * @param {string} siteAccessLevel - User's group label ('ADMIN', 'PROJECT_MANAGER', 'COLLABORATOR')
  * @param {object[]} delegations - ProjectAccess records for this project (filtered by ProjectUUID)
- * @param {Set<string>} [userScopes] - PMScope values the user belongs to (additive grant only)
+ * @param {Set<string>} [userScopes] - PMScope values the user belongs to (grants additive
+ *   reader access on Internal projects; gates visibility on public+scoped projects)
  * @returns {'owner'|'manager'|'contributing'|'reader'|null}
  */
 export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delegations, userScopes = new Set()) {
@@ -36,6 +39,14 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
 
   // 2. Confidential blocks non-admins
   if (project.AccessLevel === 'Confidential') return null
+
+  // Scope restriction: a PUBLIC (NoRestriction) project that carries a scope is
+  // visible only to its scope members. ADMIN (step 1), direct project members
+  // (step 3), and delegated users (steps 5-6) bypass it; PM-group does not.
+  // Internal/Confidential and no-scope projects are unaffected.
+  const projectHasScope = !!(project.PMScope && String(project.PMScope).trim())
+  const isScopeMember = projectHasScope && userScopes.has(project.PMScope)
+  const scopeRestrictsPublic = project.AccessLevel === 'NoRestriction' && projectHasScope
 
   // 3. PMMembers or SubmittedBy -> owner
   const email = userEmail.toLowerCase()
@@ -47,8 +58,9 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
     return 'owner'
   }
 
-  // 4. PROJECT_MANAGER group -> manager
-  if (siteAccessLevel === 'PROJECT_MANAGER') return 'manager'
+  // 4. PROJECT_MANAGER group -> manager (still subject to the scope filter on
+  //    public+scoped projects the PM is not a scope member of -- see step 9)
+  if (siteAccessLevel === 'PROJECT_MANAGER' && !(scopeRestrictsPublic && !isScopeMember)) return 'manager'
 
   // 5-6. Check delegations for this user on this project
   const userDelegations = delegations.filter(
@@ -65,8 +77,10 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
   // 8. Internal with no match -> null
   if (project.AccessLevel === 'Internal') return null
 
-  // 9. NoRestriction -> reader
-  if (project.AccessLevel === 'NoRestriction') return 'reader'
+  // 9. NoRestriction -> reader, UNLESS the project carries a scope. A public+scoped
+  //    project is visible only to its scope members (granted at step 7); everyone
+  //    else who reached this point is not a member, so block them.
+  if (project.AccessLevel === 'NoRestriction') return scopeRestrictsPublic ? null : 'reader'
 
   return null
 }

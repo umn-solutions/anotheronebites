@@ -134,7 +134,7 @@ export default defineRoute(async (config) => {
             Context: contextField.value,
             ProjectType: comboValue(projectTypeField.value),
             BusinessLine: comboValue(businessLineField.value),
-            Sponsor: optionToUserIdentity(sponsorField.value),
+            Sponsor: optionToUserIdentity(sponsorField.value) || '',
             Status: comboValue(statusField.value),
             PMScope: comboValue(pmScopeField.value),
           }, currentEtag)

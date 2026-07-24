@@ -91,6 +91,17 @@ var SPInterceptor = (function ($) {
     return d.promise();
   }
 
+  // Per-item etag versions, keyed by item reference (avoids leaking a field into
+  // projected results). Bumped on every MERGE so etags change on update, matching
+  // real SharePoint -- lets the stale-etag-after-save bug reproduce locally.
+  var _etagVersions = new WeakMap();
+  function _etagOf(item) {
+    return '"' + item.Id + '.' + (_etagVersions.get(item) || 1) + '"';
+  }
+  function _bumpEtag(item) {
+    _etagVersions.set(item, (_etagVersions.get(item) || 1) + 1);
+  }
+
   function _method(s) {
     if (s.type === 'GET') return 'GET';
     return (s.headers && s.headers['X-HTTP-Method']) || s.type || 'GET';
@@ -485,7 +496,7 @@ var SPInterceptor = (function ($) {
         var page = _paginateItems(sorted, caml.rowLimit, pagingInfo);
         var results = page.pageItems.map(function (item) {
           var projected = _filterViewFields(item, caml.viewFields);
-          projected['odata.etag'] = '"' + item.Id + '"';
+          projected['odata.etag'] = _etagOf(item);
           return projected;
         });
 
@@ -504,7 +515,8 @@ var SPInterceptor = (function ($) {
         item.Modified = new Date().toISOString();
         list.items.push(item);
         _log('POST', url, title + ' createItem -> Id ' + item.Id);
-        return _ok($.extend({}, item, { 'odata.etag': '"' + item.Id + '"' }));
+        // nometadata create returns the item WITHOUT an etag (matches real SharePoint)
+        return _ok($.extend({}, item));
       }
 
       // Update item (MERGE)
@@ -514,7 +526,7 @@ var SPInterceptor = (function ($) {
         var target = list.items.find(function (i) { return i.Id === uid; });
         // Simulate 412 when IF-MATCH is supplied and does not match the stored etag
         if (target && ifMatch && ifMatch !== '*') {
-          var storedEtag = '"' + target.Id + '"';
+          var storedEtag = _etagOf(target);
           if (ifMatch !== storedEtag) {
             _log('MERGE', url, title + ' updateItem ' + uid + ' -- 412 ETag mismatch');
             return _fail(412, 'The request ETag value does not match the current value');
@@ -522,7 +534,10 @@ var SPInterceptor = (function ($) {
         }
         var ub = _parseBody(settings);
         delete ub.__metadata;
-        if (target) $.extend(target, ub, { Modified: new Date().toISOString() });
+        if (target) {
+          $.extend(target, ub, { Modified: new Date().toISOString() });
+          _bumpEtag(target);   // etag changes on every update -- matches real SharePoint
+        }
         _log('MERGE', url, title + ' updateItem ' + uid);
         return _ok(undefined);
       }
@@ -534,7 +549,7 @@ var SPInterceptor = (function ($) {
         var delTarget = list.items.find(function (i) { return i.Id === did; });
         // Simulate 412 when IF-MATCH is supplied and does not match the stored etag
         if (delTarget && delIfMatch && delIfMatch !== '*') {
-          var delStoredEtag = '"' + delTarget.Id + '"';
+          var delStoredEtag = _etagOf(delTarget);
           if (delIfMatch !== delStoredEtag) {
             _log('DELETE', url, title + ' deleteItem ' + did + ' -- 412 ETag mismatch');
             return _fail(412, 'The request ETag value does not match the current value');

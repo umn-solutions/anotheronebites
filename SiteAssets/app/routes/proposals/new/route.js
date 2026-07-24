@@ -44,7 +44,7 @@ export default defineRoute(async (config) => {
         context: contextField.value,
         projectType: comboValue(projectTypeField.value),
         businessLine: comboValue(businessLineField.value),
-        sponsor: sponsorField.value,
+        sponsor: optionToUserIdentity(sponsorField.value) || '',
         status: comboValue(statusField.value, 'Pipeline'),
       })
       Router.navigateTo('projects/new')
