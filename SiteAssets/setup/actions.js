@@ -1,6 +1,6 @@
 import { spMERGE } from '../app/libs/nofbiz/nofbiz.base.js'
 import { log } from './log.js'
-import { lockDefaultView, lockDefaultForms, ensureAdminView, addFieldToAdminView } from './views.js'
+import { setQuickEdit, setFormsRedirect, ensureAdminView, addFieldToAdminView } from './views.js'
 
 export async function createList(siteApi, listName, schema, appUrl) {
   log('Creating list: ' + listName + '...', 'info');
@@ -32,8 +32,9 @@ export async function createList(siteApi, listName, schema, appUrl) {
       }
     }
 
-    await lockDefaultView(listName);
-    await lockDefaultForms(listName, appUrl);
+    await setQuickEdit(listName, false);
+    await setFormsRedirect(listName, true, appUrl);
+    await setListHidden(listName, true);
     if (createdFields.length > 0) {
       log('Adding fields to Admin view...', 'info');
       await ensureAdminView(listName);
@@ -137,8 +138,9 @@ export async function fullSetup(siteApi, scanResult, schema, appUrl) {
         if (d.status === 'MISSING') await createField(siteApi, listName, d.field, schema);
         if (d.status === 'INDEX') await fixIndex(siteApi, listName, d.field, schema);
       }
-      await lockDefaultView(listName);
-      await lockDefaultForms(listName, appUrl);
+      await setQuickEdit(listName, false);
+      await setFormsRedirect(listName, true, appUrl);
+      await setListHidden(listName, true);
     }
   }
   log('Full setup complete. Re-scanning...', 'success');

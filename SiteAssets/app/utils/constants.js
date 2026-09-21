@@ -1,3 +1,6 @@
+// App identity
+export const APP_NAME = 'Management Platform'
+
 // List Name Constants
 
 export const LIST_PROJECTS = 'Projects'
@@ -54,23 +57,9 @@ export const ITEM_TYPES = ['Project', 'Program', 'Proposal']
 
 // Group Hierarchy (ordered lowest-to-highest privilege, Admins MUST be last)
 export const GROUP_HIERARCHY = [
-  { groupTitle: 'Collaborators', groupLabel: 'COLLABORATOR' },
-  { groupTitle: 'ProjectManagers', groupLabel: 'PROJECT_MANAGER' },
+  { groupTitle: 'Users', groupLabel: 'USER' },
   { groupTitle: 'Admins', groupLabel: 'ADMIN' },
 ]
-
-// UserRoles list name
-export const LIST_USER_ROLES = 'UserRoles'
-
-// Application permission map (used with RoleManager.canAccess)
-export const APP_PERMISSIONS = {
-  adminArea: ['admin'],
-  createProject: ['*'],
-  createProgram: ['*'],
-  createProposal: ['*'],
-  manageTeam: ['admin'],
-  viewCapacity: ['admin', 'project_manager'],
-}
 
 // ProjectAccess list name
 export const LIST_PROJECT_ACCESS = 'ProjectAccess'

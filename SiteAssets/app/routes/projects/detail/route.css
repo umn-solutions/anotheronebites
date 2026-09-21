@@ -1,247 +1,937 @@
-.projects-detail-route {
-	height: 100%;
-	overflow: hidden;
-	align-items: stretch;
+/* ==========================================================================
+   Project Detail Route — route-specific overrides only.
+   Foundation classes (app-record-header, app-form-section, app-kpi-grid,
+   app-table-row, app-empty-state, app-modal-shell, app-btn-*, app-overline,
+   app-status-*) live in app/css/app.css.
+   ========================================================================== */
+
+/* ==========================================================================
+   Record header tab-row override: hides the default TabGroup panel so the
+   body grid renders the content independently below the header.
+   ========================================================================== */
+
+.app-record-header > .nofbiz__tabgroup > :last-child {
+  display: none;
+}
+
+/* ==========================================================================
+   Detail body grid: 280px sidebar + 1fr content, 24px gap, 24px 32px padding
+   ========================================================================== */
+
+.app-project-detail-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 24px;
+  padding: 24px 32px;
+  align-items: start;
+  min-height: 0;
+}
+
+/* Make the tabgroup fill its column */
+.app-project-detail-body > .nofbiz__tabgroup {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.app-project-detail-body > .nofbiz__tabgroup > :last-child {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ==========================================================================
+   Record header spacer (pushes Back button to the right)
+   ========================================================================== */
+
+.app-record-header__spacer {
+  flex: 1;
+}
+
+/* ==========================================================================
+   Project sidebar (left 280px column)
+   ========================================================================== */
+
+.app-project-sidebar {
+  background: var(--app-bg-surface);
+  border: var(--stroke-thin) solid var(--app-border);
+  border-radius: var(--app-card-radius);
+  padding: 20px;
+  box-shadow: var(--app-card-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
 }
 
 .app-sidebar-divider {
-	border: none;
-	border-top: var(--stroke-thin) solid var(--app-border);
-	margin: 0.75rem 0;
+  border: none;
+  border-top: var(--stroke-thin) solid var(--app-border);
+  margin: 0;
 }
 
-.app-detail-title {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
+/* Sidebar fields */
+.app-sidebar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.app-validated-badge {
-	background: var(--app-primary-light);
-	color: var(--app-success);
+.app-sidebar-field__label {
+  /* already styled via app-overline in app.css */
 }
 
-/* ---------- Sidebar Badge List ---------- */
-
-.app-sidebar-badge-list {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
-	margin-top: 0.25rem;
-	max-height: 6rem;
-	overflow-y: auto;
+.app-sidebar-field__value {
+  font-size: var(--font-size-300);
+  line-height: var(--line-height-300);
+  color: var(--app-fg);
 }
 
-.app-sidebar-badge-list .app-multi-person-item {
-	width: 100%;
-	justify-content: center;
+.app-sidebar-field__value--empty {
+  color: var(--app-fg-disabled);
+  font-style: italic;
 }
 
-/* ---------- Charter Actions ---------- */
+/* ==========================================================================
+   People list (sidebar)
+   ========================================================================== */
 
-.app-charter-actions {
-	display: flex;
-	justify-content: flex-end;
-	margin-top: 1rem;
-	width: 100%;
+.app-people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
 }
 
-/* ---------- Governance Actions ---------- */
-
-.app-governance-actions {
-	display: flex;
-	justify-content: space-between;
-	gap: 0.75rem;
-	margin-top: 1rem;
-	width: 100%;
+.app-people-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.app-governance-actions .nofbiz__button {
-	min-width: fit-content;
-	width: 10rem;
-	white-space: nowrap;
+.app-people-row__text {
+  display: flex;
+  flex-direction: column;
 }
 
-/* ---------- Tab Panel Height Chain ---------- */
-
-.app-dashboard-layout .nofbiz__tabgroup {
-	display: flex;
-	flex-direction: column;
-	min-height: 0;
+.app-people-row__name {
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--app-fg);
 }
 
-.app-dashboard-layout .nofbiz__tabgroup > :last-child {
-	flex: 1;
-	min-height: 0;
-	overflow: auto;
+.app-people-row__role {
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--app-fg-muted);
 }
 
-/* ---------- Updates Tab Scroll ---------- */
+/* ==========================================================================
+   Avatar (shared: sidebar people, access tab, capacity tab)
+   ========================================================================== */
+
+.app-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.app-avatar--wash {
+  background: var(--app-wash);
+  color: var(--app-primary-active);
+}
+
+.app-avatar--neutral {
+  background: var(--app-bg-page);
+  color: var(--app-fg-muted);
+}
+
+.app-avatar--sm {
+  width: 24px;
+  height: 24px;
+}
+
+.app-avatar__initials {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+/* ==========================================================================
+   Meta grid (2x2 in sidebar)
+   ========================================================================== */
+
+.app-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 8px;
+}
+
+.app-meta-grid__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-meta-grid__value {
+  font-size: var(--font-size-300);
+  line-height: var(--line-height-300);
+  color: var(--app-fg);
+}
+
+/* ==========================================================================
+   Overview tab
+   ========================================================================== */
+
+/* Isolated row sections (Dates & Scope, Impact & Targets) */
+.app-overview-section .app-section-card__heading-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 12px;
+  border-bottom: var(--stroke-thin) solid var(--app-border);
+  margin-bottom: 8px;
+}
+
+.app-overview-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each row: 200px label | 1fr value, 6px 8px padding, radius 4, zebra wash */
+.app-overview-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.app-overview-row:nth-child(odd) {
+  background: var(--app-wash);
+}
+
+.app-overview-row__label {
+  /* styled via app-overline */
+  flex-shrink: 0;
+}
+
+.app-overview-row__value {
+  font-size: var(--font-size-300);
+  line-height: var(--line-height-300);
+  color: var(--app-fg);
+  word-break: break-word;
+}
+
+.app-overview-row__value--empty {
+  color: var(--app-fg-disabled);
+  font-style: normal;
+}
+
+/* ==========================================================================
+   Project Log (3a)
+   ========================================================================== */
 
 .app-updates-tab {
-	display: flex;
-	flex-direction: column;
-	height: 100%;
-	min-height: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
 }
 
-/* ---------- Updates Toolbar ---------- */
-
+/* Toolbar: plain white card, flex, align-items flex-end, gap 12 */
 .app-updates-toolbar {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	flex-wrap: wrap;
-	padding: 0.75rem 0;
-	margin-bottom: 1rem;
-	border-bottom: var(--stroke-thin) solid var(--app-border);
-	flex-shrink: 0;
+  background: var(--app-bg-surface);
+  border: var(--stroke-thin) solid var(--app-border);
+  border-radius: var(--app-card-radius);
+  padding: 16px 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-shadow: var(--app-card-shadow);
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
-.app-updates-toolbar .nofbiz__textinput {
-	flex: 1;
-	min-width: 150px;
+.app-updates-toolbar__search {
+  flex: 1;
+  min-width: 150px;
 }
 
-.app-updates-toolbar-actions {
-	margin-left: auto;
-	display: flex;
-	gap: 0.5rem;
-	align-items: center;
+.app-updates-toolbar__search .nofbiz__fieldlabel {
+  width: 100%;
 }
 
-/* ---------- Update Timeline ---------- */
-
-.app-update-timeline {
-	display: flex;
-	flex-direction: column;
-	gap: 0;
-	padding-left: 2rem;
-	margin-left: 0.75rem;
-	position: relative;
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
+/* From / To date fields 170px */
+.app-updates-toolbar > .nofbiz__fieldlabel:nth-child(2),
+.app-updates-toolbar > .nofbiz__fieldlabel:nth-child(3) {
+  width: 170px;
+  flex-shrink: 0;
 }
 
-.app-update-timeline::before {
-	content: "";
-	position: absolute;
-	left: 0;
-	top: 0;
-	bottom: 0;
-	width: 2px;
-	background: var(--app-border);
+.app-updates-toolbar > .nofbiz__fieldlabel .nofbiz__dateinput input {
+  font-family: var(--font-family-monospace);
 }
 
-.app-timeline-item {
-	position: relative;
-	padding: 0 0 1.5rem 0;
+/* Divider between date fields and action buttons */
+.app-updates-toolbar__divider {
+  width: 1px;
+  height: 36px;
+  background: var(--app-border);
+  flex-shrink: 0;
+  align-self: flex-end;
 }
 
-.app-timeline-item::before {
-	content: "";
-	position: absolute;
-	left: -2rem;
-	top: 0.25rem;
-	width: 12px;
-	height: 12px;
-	border-radius: 50%;
-	background: var(--app-primary);
-	border: var(--stroke-thick) solid var(--color-bg-base);
-	box-shadow: 0 0 0 2px var(--app-primary);
-	transform: translateX(calc(-50% + 1px));
+.app-updates-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.app-timeline-date {
-	color: var(--app-text-muted);
-	font-size: 0.8rem;
-	font-weight: var(--font-weight-semibold);
-	margin-bottom: 0.35rem;
+/* Sort toggle chevron hint */
+.app-sort-toggle .nofbiz__button::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  margin-left: 6px;
 }
 
-.app-update-timeline .nofbiz__card {
-	max-width: 600px;
-	border-left: var(--stroke-thicker) solid var(--app-primary);
+/* Updates card */
+.app-updates-card {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
-/* ---------- Overview: KPI Cards ---------- */
-
-.app-kpi-row {
-	display: flex;
-	gap: 1rem;
-	margin-bottom: var(--app-section-gap);
+.app-updates-card__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
 }
 
-.app-kpi-card {
-	flex: 1;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: var(--space-sNudge);
-	padding: var(--space-l);
-	background: var(--app-surface-base);
-	border: var(--stroke-thin) solid var(--app-border);
-	border-radius: var(--app-card-radius);
-	box-shadow: var(--app-card-shadow);
+/* Timeline list */
+.app-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 8px;
 }
 
-.app-kpi-label {
-	font-size: var(--font-size-200);
-	font-weight: var(--font-weight-semibold);
-	text-transform: uppercase;
-	letter-spacing: 0.02em;
-	color: var(--app-text-muted);
+/* Each entry: 20px left col + 1fr right col */
+.app-timeline-entry {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: stretch;
+  gap: 0 12px;
 }
 
-.app-kpi-value {
-	font-size: var(--font-size-700);
-	font-weight: var(--font-weight-semibold);
-	color: var(--color-fg-primary);
+/* Left column: 10px rotated square marker + continuing vertical rule */
+.app-timeline-entry__left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
 }
 
-/* ---------- Overview: Read-Only Rows ---------- */
-
-.app-overview-row {
-	display: flex;
-	gap: 1rem;
-	padding: var(--space-sNudge) 0;
-	border-bottom: var(--stroke-thin) solid var(--app-border);
+/* The rotated square marker */
+.app-timeline-entry__left::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: var(--marker-color, var(--app-primary));
+  transform: rotate(45deg);
+  flex-shrink: 0;
+  margin-top: 14px;
+  border-radius: 2px;
 }
 
-.app-overview-label {
-	flex: 0 0 160px;
-	font-size: var(--font-size-200);
-	font-weight: var(--font-weight-semibold);
-	text-transform: uppercase;
-	letter-spacing: 0.02em;
-	color: var(--app-text-muted);
+/* The continuing vertical rule */
+.app-timeline-entry__left::after {
+  content: '';
+  flex: 1;
+  width: 1px;
+  background: var(--app-border);
+  margin-top: 4px;
 }
 
-.app-overview-value {
-	flex: 1;
-	font-size: var(--font-size-300);
-	color: var(--color-fg-primary);
+/* Last entry: no continuing rule */
+.app-timeline-entry:last-child .app-timeline-entry__left::after {
+  display: none;
 }
 
-/* ---------- Responsive: Updates ---------- */
+.app-timeline-entry__right {
+  padding: 12px 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Meta line: monospace date + tag pill + author */
+.app-timeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-timeline-meta__date {
+  font-family: var(--font-family-monospace);
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+.app-timeline-tag {
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-circular);
+  white-space: nowrap;
+}
+
+.app-timeline-tag--milestone {
+  background: var(--color-success-subtle);
+  color: var(--color-success-primary);
+}
+
+.app-timeline-tag--risk {
+  background: var(--app-status-delayed-bg);
+  color: var(--app-status-delayed-fg);
+}
+
+.app-timeline-tag--decision {
+  background: var(--color-info-subtle);
+  color: var(--color-info-primary);
+}
+
+.app-timeline-tag--update {
+  background: var(--color-bg-secondary);
+  color: var(--color-fg-secondary);
+}
+
+.app-timeline-meta__author {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+/* Body text */
+.app-timeline-body {
+  font-size: var(--font-size-300);
+  line-height: var(--line-height-300);
+  color: var(--app-fg);
+  max-width: 720px;
+  margin: 0;
+}
+
+.app-timeline-body--roadblock {
+  color: var(--app-fg-muted);
+}
+
+.app-timeline-body--nextsteps {
+  color: var(--app-fg-muted);
+}
+
+/* ==========================================================================
+   Edit tab (3b) — Charter + sticky footer
+   ========================================================================== */
+
+/* Section heading meta ("* required") */
+.app-section-header-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -4px;
+  margin-bottom: 4px;
+}
+
+.app-section-meta {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+/* Read-only date with reason line */
+.app-readonly-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-readonly-date-field .nofbiz__dateinput input {
+  background: var(--app-bg-page);
+  border-color: var(--app-border);
+  color: var(--app-fg-disabled);
+}
+
+.app-field-reason {
+  font-size: var(--font-size-200);
+  line-height: var(--line-height-200);
+  color: var(--app-fg-muted);
+  margin: 0;
+}
+
+/* Sticky save bar */
+.app-sticky-save-bar--hidden {
+  display: none;
+}
+
+.app-sticky-save-bar {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--app-bg-surface);
+  border-top: var(--stroke-thin) solid var(--app-border);
+  padding: 12px 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+  margin: 0 -24px;
+  box-sizing: border-box;
+}
+
+.app-sticky-save-bar__label {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+.app-sticky-save-bar__section {
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+}
+
+.app-sticky-save-bar__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Danger zone (delete button at bottom) */
+.app-danger-zone {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0;
+  border-top: var(--stroke-thin) solid var(--app-border);
+  margin-top: 8px;
+}
+
+/* ==========================================================================
+   Umbrella View (3c)
+   ========================================================================== */
+
+.app-umbrella-panel {
+  padding: 0;
+}
+
+.app-section-card__heading-row--spaced {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-tree-hint {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+  margin: 0 0 16px;
+  padding: 0 var(--space-xxl);
+}
+
+.app-tree-mount {
+  overflow-x: auto;
+  min-height: 200px;
+  padding: 16px 0;
+}
+
+.app-tree-mount svg {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+}
+
+/* Hover highlight on tree nodes */
+.app-tree-node {
+  transition: filter 150ms;
+}
+
+.app-tree-node:hover rect {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
+}
+
+/* Legend */
+.app-tree-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 0 var(--space-xxl);
+}
+
+.app-tree-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-tree-legend__dot {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
+.app-tree-legend__dot--program {
+  background: var(--app-wash);
+  border: 1.5px solid var(--app-primary);
+}
+
+.app-tree-legend__dot--project {
+  background: var(--app-bg-surface);
+  border: 1.5px solid var(--app-fg-muted);
+}
+
+.app-tree-legend__label {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+/* ==========================================================================
+   Access tab (3d)
+   ========================================================================== */
+
+/* Access level card */
+.app-access-level__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-access-level__level-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-access-level__value {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+}
+
+/* "Permanent" amber pill */
+.app-access-level__permanent-pill {
+  font-size: var(--font-size-200);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-circular);
+  background: var(--app-status-delayed-bg);
+  color: var(--app-status-delayed-fg);
+}
+
+.app-access-level__desc {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+  margin: 0;
+}
+
+.app-access-level__change {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Delegation table */
+.app-delegation-table__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-delegation-table__empty {
+  color: var(--app-fg-muted);
+  font-size: var(--font-size-200);
+  padding: 16px 0;
+}
+
+/* Table column widths for delegation: 1fr 200px 140px 100px */
+.app-delegation-table__row,
+.app-table-header {
+  display: grid;
+  grid-template-columns: 1fr 200px 140px 100px;
+  align-items: center;
+}
+
+.app-delegation-row__person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-delegation-row__person-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-delegation-row__name {
+  font-size: var(--font-size-300);
+  line-height: 18px;
+  color: var(--app-fg);
+}
+
+.app-delegation-row__email {
+  font-size: var(--font-size-200);
+  line-height: 14px;
+  color: var(--app-fg-muted);
+}
+
+.app-delegation-row__granted {
+  font-family: var(--font-family-monospace);
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+.app-delegation-row__action {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* form section heading row with right meta */
+.app-form-section__heading-row {
+  display: flex;
+  align-items: baseline;
+  padding-bottom: 12px;
+  border-bottom: var(--stroke-thin) solid var(--app-border);
+  margin-bottom: 12px;
+}
+
+.app-form-section__heading-row--spaced {
+  justify-content: space-between;
+}
+
+.app-form-section__heading {
+  font-size: var(--font-size-500);
+  line-height: var(--line-height-500);
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+  margin: 0;
+}
+
+/* Grant access row */
+.app-grant-access__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.app-grant-access__person {
+  flex: 1;
+  min-width: 200px;
+}
+
+.app-grant-access__type {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Capacity tab (3e)
+   ========================================================================== */
+
+/* Table column widths: 1fr 120px 1fr 80px */
+.app-capacity-table__row,
+.app-capacity-table > .app-table-header {
+  display: grid;
+  grid-template-columns: 1fr 120px 1fr 80px;
+  align-items: center;
+}
+
+/* Totals row overrides grid from .app-table-row--totals */
+.app-capacity-table > .app-table-row--totals {
+  display: grid;
+  grid-template-columns: 1fr 120px 1fr 80px;
+  align-items: center;
+}
+
+.app-capacity-col--person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-capacity-name {
+  font-size: var(--font-size-300);
+  color: var(--app-fg);
+}
+
+.app-capacity-role {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+}
+
+/* FTE bar */
+.app-fte-bar {
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.app-fte-bar__fill {
+  height: 100%;
+  background: var(--app-primary);
+  border-radius: 4px;
+  transition: width var(--app-transition-fast);
+}
+
+.app-fte-bar__fill--low {
+  background: var(--app-tint);
+}
+
+.app-fte-bar__fill--over {
+  background: var(--app-danger);
+}
+
+.app-capacity-fte {
+  font-family: var(--font-family-monospace);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-300);
+  text-align: right;
+  color: var(--app-fg);
+}
+
+.app-capacity-totals__label {
+  /* styled via app-overline */
+}
+
+.app-capacity-totals__value {
+  font-family: var(--font-family-monospace);
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  text-align: right;
+}
+
+/* Editable allocation row — edit field + save button inline */
+.app-capacity-col--edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-capacity-col--edit .nofbiz__numberinput {
+  flex: 1;
+}
+
+/* ==========================================================================
+   Modal actions row (shared by close-project, new update dialogs)
+   ========================================================================== */
+
+.app-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: var(--stroke-thin) solid var(--app-border-subtle);
+  margin-top: 8px;
+}
+
+/* Close date field: monospace, max-width 220 */
+.app-close-date-field {
+  max-width: 220px;
+}
+
+.app-close-date-field .nofbiz__dateinput input {
+  font-family: var(--font-family-monospace);
+}
+
+/* Warning text in delete modal */
+.app-modal-shell__warning {
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+  margin: 0;
+}
+
+/* ==========================================================================
+   Form section heading row override for the app-form-section class
+   (app-form-section uses > .nofbiz__text:first-child for heading; here we
+   also need a heading-row layout with optional right-side meta)
+   ========================================================================== */
+
+.app-form-section__heading-row + * {
+  /* ensure sections with explicit heading-row don't double-indent */
+}
+
+/* Override: when an app-form-section wraps an app-form-section__heading-row,
+   suppress the default h2 first-child treatment */
+.app-form-section > .app-form-section__heading-row > .nofbiz__text {
+  font-size: var(--font-size-500);
+  line-height: var(--line-height-500);
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+/* ==========================================================================
+   Validated badge
+   ========================================================================== */
+
+.app-validated-badge {
+  background: var(--app-wash);
+  color: var(--app-primary-active);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .app-project-detail-body {
+    grid-template-columns: 1fr;
+  }
+
+  .app-project-sidebar {
+    max-height: none;
+  }
+}
 
 @media (max-width: 768px) {
-	.projects-detail-route {
-		height: auto;
-		overflow: auto;
-	}
+  .app-project-detail-body {
+    padding: 16px;
+  }
 
-	.app-updates-toolbar {
-		flex-direction: column;
-		align-items: stretch;
-	}
+  .app-updates-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
-	.app-updates-toolbar-actions {
-		margin-left: 0;
-	}
+  .app-updates-toolbar__divider {
+    display: none;
+  }
 
-	.app-update-timeline .nofbiz__card {
-		max-width: 100%;
-	}
+  .app-updates-toolbar__actions {
+    flex-wrap: wrap;
+  }
+
+  .app-delegation-table__row,
+  .app-capacity-table__row,
+  .app-capacity-table > .app-table-header {
+    grid-template-columns: 1fr;
+  }
 }

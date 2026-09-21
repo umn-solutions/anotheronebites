@@ -1,29 +1,30 @@
 import { spGET, spMERGE, spPOST } from '../app/libs/nofbiz/nofbiz.base.js'
 import { log } from './log.js'
 
-export async function lockDefaultView(listName) {
+export async function setQuickEdit(listName, enabled) {
   const url = `${_spPageContextInfo.webAbsoluteUrl}/_api/web/lists/getbytitle('${listName}')/DefaultView`;
   try {
     await spMERGE(url, {
       headers: { 'IF-MATCH': '*' },
-      data: { TabularView: false },
+      data: { TabularView: enabled },
     });
-    log('  [view] Disabled quick edit on AllItems');
+    log(`  [view] Quick edit ${enabled ? 'enabled' : 'disabled'} on ${listName}`);
   } catch (e) {
-    log('  [view] ! Failed to disable quick edit -- ' + (e.message || 'failed'), 'error');
+    log(`  [view] ! Failed to ${enabled ? 'enable' : 'disable'} quick edit -- ` + (e.message || 'failed'), 'error');
   }
 }
 
-export async function lockDefaultForms(listName, appUrl) {
+export async function setFormsRedirect(listName, redirect, appUrl) {
   const url = `${_spPageContextInfo.webAbsoluteUrl}/_api/web/lists/getbytitle('${listName}')`;
+  const target = redirect ? appUrl : '';
   try {
     await spMERGE(url, {
       headers: { 'IF-MATCH': '*' },
-      data: { __metadata: { type: 'SP.List' }, DefaultNewFormUrl: appUrl, DefaultEditFormUrl: appUrl },
+      data: { __metadata: { type: 'SP.List' }, DefaultNewFormUrl: target, DefaultEditFormUrl: target },
     });
-    log('  [forms] Redirected New/Edit forms to app');
+    log(`  [forms] ${redirect ? 'Redirected New/Edit forms to app' : 'Restored default New/Edit forms'} on ${listName}`);
   } catch (e) {
-    log('  [forms] ! Failed to redirect forms -- ' + (e.message || 'failed'), 'error');
+    log(`  [forms] ! Failed to ${redirect ? 'redirect' : 'restore'} forms -- ` + (e.message || 'failed'), 'error');
   }
 }
 

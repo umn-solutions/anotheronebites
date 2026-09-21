@@ -1,4 +1,4 @@
-import { diffSummary } from './scan.js'
+import { diffSummary, siteAggregate } from './scan.js'
 
 export function renderCards(scanResult, cardsEl) {
   if (!scanResult) return;
@@ -23,11 +23,23 @@ export function renderCards(scanResult, cardsEl) {
     if (!result.exists) {
       html += `<button class="btn btn-primary btn-sm" data-action="create-list" data-list="${listName}">Create List</button>`;
     } else {
+      if (result.url) {
+        html += `<a class="btn btn-secondary btn-sm" href="${result.url}" target="_blank" rel="noopener">View UI</a>`;
+      }
       if (result.diff.some(d => d.status === 'MISSING' || d.status === 'INDEX')) {
         html += `<button class="btn btn-primary btn-sm" data-action="sync-list" data-list="${listName}">Sync Fields</button>`;
       }
       const hideLabel = result.hidden ? 'Show' : 'Hide';
       html += `<button class="btn btn-secondary btn-sm" data-action="toggle-hidden" data-list="${listName}">${hideLabel}</button>`;
+      const qeLabel = result.quickEditDisabled ? 'Enable Quick Edit' : 'Disable Quick Edit';
+      html += `<button class="btn btn-secondary btn-sm" data-action="toggle-quickedit" data-list="${listName}">${qeLabel}</button>`;
+      const formsLabel = result.formsRedirected ? 'Restore Forms' : 'Redirect Forms';
+      html += `<button class="btn btn-secondary btn-sm" data-action="toggle-forms" data-list="${listName}">${formsLabel}</button>`;
+      html += `<button class="btn btn-secondary btn-sm" data-action="export-backup" data-list="${listName}">Export .txt</button>`;
+      html += `<button class="btn btn-secondary btn-sm" data-action="export-csv" data-list="${listName}">Export CSV</button>`;
+      html += `<button class="btn btn-secondary btn-sm" data-action="export-xlsx" data-list="${listName}">Export XLSX</button>`;
+      html += `<button class="btn btn-secondary btn-sm" data-action="import-list" data-list="${listName}">Import</button>`;
+      html += `<input type="file" class="file-import-list" data-list="${listName}" accept=".txt,.sparcbak" style="display:none" />`;
       html += `<button class="btn btn-danger btn-sm" data-action="delete-list" data-list="${listName}">Delete List</button>`;
     }
 
@@ -77,6 +89,21 @@ export function renderCards(scanResult, cardsEl) {
   }
 
   cardsEl.innerHTML = html;
+}
+
+export function renderSiteControls(scanResult, el) {
+  if (!scanResult) { el.innerHTML = ''; return; }
+  const agg = siteAggregate(scanResult);
+  if (agg.count === 0) { el.innerHTML = ''; return; }
+
+  const hideLabel = agg.allHidden ? 'Show All Lists' : 'Hide All Lists';
+  const qeLabel = agg.allQuickDisabled ? 'Enable Quick Edit (All)' : 'Disable Quick Edit (All)';
+  const formsLabel = agg.allFormsRedirected ? 'Restore Forms (All)' : 'Redirect Forms (All)';
+
+  el.innerHTML = `<span class="site-controls-label">Site-wide (${agg.count} lists):</span>
+    <button class="btn btn-secondary btn-sm" data-site-action="hidden">${hideLabel}</button>
+    <button class="btn btn-secondary btn-sm" data-site-action="quickedit">${qeLabel}</button>
+    <button class="btn btn-secondary btn-sm" data-site-action="forms">${formsLabel}</button>`;
 }
 
 export function setBusy(state, btnScan) {

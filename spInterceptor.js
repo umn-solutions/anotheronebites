@@ -52,9 +52,44 @@ var SPInterceptor = (function ($) {
       { Id: 2, Title: 'Sandbox Owners', Description: 'Default owners group', OwnerTitle: 'Admin' },
     ],
 
+    /**
+     * Stale principal returned by `ensureuser`, reproducing the on-prem
+     * duplicate User-Information-List bug: a low/empty-email row resolves
+     * instead of the valid one. `getuserbyid(STALE_USER_ID)/groups` returns []
+     * (the stale principal is in no group), so the OLD siteUserId-based access
+     * path grants nothing. The NEW email path (CurrentUser -> isUserInGroup)
+     * resolves access via the valid email in groupMembers below.
+     */
+    staleUser: {
+      Id: 999,
+      LoginName: _spPageContextInfo.userLoginName,
+      Title: 'John Doe',
+      Email: '', // empty -- the ghost UIL entry
+    },
+
+    /**
+     * Per-group members, keyed by group Title. Returned by
+     * `sitegroups/getbyname('Title')/users` (and `getbyid(n)` via Id->Title
+     * lookup), honoring `?$filter=Email eq '...'`. The valid john.doe row lives
+     * in 'Sandbox Owners' so email-based resolution grants OWNER access even
+     * though the stale principal (Id 999) is in no group. The empty-email ghost
+     * duplicate exercises getGroupUsers' dedupe/drop logic.
+     */
+    groupMembers: {
+      'Sandbox Members': [
+        { Id: 2, LoginName: 'i:0#.w|domain\\jsmith', Title: 'Jane Smith', Email: 'jane.smith@example.com' },
+      ],
+      'Sandbox Owners': [
+        { Id: 999, LoginName: _spPageContextInfo.userLoginName, Title: '', Email: '' }, // ghost dup
+        { Id: 1, LoginName: _spPageContextInfo.userLoginName, Title: 'John Doe', Email: 'john.doe@example.com' },
+      ],
+    },
+
     /** In-memory lists. Pre-populate to seed data for your routes. */
     lists: {},
   };
+
+  var STALE_USER_ID = 999;
 
   // Merge project-specific seed data from sharepointContext.js
   if (typeof _spMockData !== 'undefined') {
@@ -62,6 +97,7 @@ var SPInterceptor = (function ($) {
     if (_spMockData.profile) $.extend(true, store.profile, _spMockData.profile);
     if (_spMockData.groups) store.groups = _spMockData.groups;
     if (_spMockData.groupMembers) store.groupMembers = _spMockData.groupMembers;
+    if (_spMockData.staleUser) $.extend(store.staleUser, _spMockData.staleUser);
     if (_spMockData.lists) {
       Object.keys(_spMockData.lists).forEach(function (title) {
         store.lists[title] = _spMockData.lists[title];
@@ -89,17 +125,6 @@ var SPInterceptor = (function ($) {
     var d = $.Deferred();
     setTimeout(function () { d.reject({ status: status, responseText: message }); }, DELAY_MS);
     return d.promise();
-  }
-
-  // Per-item etag versions, keyed by item reference (avoids leaking a field into
-  // projected results). Bumped on every MERGE so etags change on update, matching
-  // real SharePoint -- lets the stale-etag-after-save bug reproduce locally.
-  var _etagVersions = new WeakMap();
-  function _etagOf(item) {
-    return '"' + item.Id + '.' + (_etagVersions.get(item) || 1) + '"';
-  }
-  function _bumpEtag(item) {
-    _etagVersions.set(item, (_etagVersions.get(item) || 1) + 1);
   }
 
   function _method(s) {
@@ -342,23 +367,42 @@ var SPInterceptor = (function ($) {
     return out;
   }
 
+  // Extracts a raw (still URL-encoded) query-string value from a URL, or null.
+  function _getQueryParam(url, name) {
+    var val = (url.split(name + '=')[1] || '').split('&')[0];
+    return val || null;
+  }
+
+  function _matchODataCondition(item, cond) {
+    var parts = cond.trim().match(/^(\w+)\s+eq\s+(.+)$/i);
+    if (!parts) return true; // unparseable clause -> ignore (permissive)
+    var prop = parts[1];
+    var raw = parts[2].trim();
+    var expected;
+    if (raw === 'true') expected = true;
+    else if (raw === 'false') expected = false;
+    else if (raw.charAt(0) === "'") expected = raw.slice(1, -1);
+    else expected = raw;
+    return item[prop] === expected;
+  }
+
   function _applyODataFilter(items, filterString) {
     if (!filterString) return items;
-    var conditions = filterString.split(/\s+and\s+/i);
+    // OData precedence: `and` binds tighter than `or`. Callers here never use
+    // parentheses, so split OR-groups first, then AND-conditions within each.
+    // An item passes if ANY or-group is satisfied (all its and-conditions true).
+    // Required for identity resolution, which sends `Email eq '...' or LoginName eq '...'`.
+    var orGroups = filterString.split(/\s+or\s+/i);
     return items.filter(function (item) {
-      for (var i = 0; i < conditions.length; i++) {
-        var parts = conditions[i].trim().match(/^(\w+)\s+eq\s+(.+)$/i);
-        if (!parts) continue;
-        var prop = parts[1];
-        var raw = parts[2].trim();
-        var expected;
-        if (raw === 'true') expected = true;
-        else if (raw === 'false') expected = false;
-        else if (raw.charAt(0) === "'") expected = raw.slice(1, -1);
-        else expected = raw;
-        if (item[prop] !== expected) return false;
+      for (var g = 0; g < orGroups.length; g++) {
+        var conditions = orGroups[g].split(/\s+and\s+/i);
+        var allMatch = true;
+        for (var i = 0; i < conditions.length; i++) {
+          if (!_matchODataCondition(item, conditions[i])) { allMatch = false; break; }
+        }
+        if (allMatch) return true;
       }
-      return true;
+      return false;
     });
   }
 
@@ -418,16 +462,21 @@ var SPInterceptor = (function ($) {
       });
     }
 
-    // Ensure user
+    // Ensure user -- returns the STALE principal (empty email, Id 999),
+    // reproducing the on-prem duplicate-UIL bug.
     if (m === 'POST' && url.includes('/_api/web/ensureuser')) {
-      _log('POST', url, 'ensureUser');
-      return _ok({ d: store.user });
+      _log('POST', url, 'ensureUser (stale principal)');
+      return _ok({ d: store.staleUser });
     }
 
-    // User groups by ID
-    if (m === 'GET' && /getuserbyid\(\d+\)\/groups/.test(url)) {
-      _log('GET', url, 'user groups');
-      return _ok({ d: { results: store.groups } });
+    // User groups by ID -- the stale principal belongs to no group, so the
+    // OLD siteUserId-based path returns []. Other IDs still see store.groups.
+    var groupsByIdMatch = url.match(/getuserbyid\((\d+)\)\/groups/);
+    if (m === 'GET' && groupsByIdMatch) {
+      var uid = parseInt(groupsByIdMatch[1], 10);
+      var ugroups = uid === STALE_USER_ID ? [] : store.groups;
+      _log('GET', url, 'user groups (id ' + uid + ') -> ' + ugroups.length);
+      return _ok({ d: { results: ugroups } });
     }
 
     // User profile (PeopleManager)
@@ -436,26 +485,26 @@ var SPInterceptor = (function ($) {
       return _ok({ d: store.profile });
     }
 
-    // Group members by ID or name
-    if (m === 'GET' && /sitegroups\/(getbyid\(\d+\)|getbyname\('[^']+'\))\/users/i.test(url)) {
-      var idMatch = url.match(/getbyid\((\d+)\)/i);
-      var nameMatch = url.match(/getbyname\('([^']+)'\)/i);
-      var members = [];
-
-      if (store.groupMembers) {
-        if (idMatch) {
-          var gid = parseInt(idMatch[1], 10);
-          members = store.groupMembers[gid] || [];
-        } else if (nameMatch) {
-          var gname = nameMatch[1];
-          var group = store.groups.find(function (g) { return g.Title === gname; });
-          if (group && store.groupMembers[group.Id]) {
-            members = store.groupMembers[group.Id];
-          }
-        }
+    // Group members: sitegroups/getbyid(n)|getbyname('Title')/users [?$filter=...]
+    // Resolves members by group Title (numeric id mapped via store.groups),
+    // then applies any server-side $filter (e.g. Email eq '...').
+    if (m === 'GET' && /\/_api\/web\/sitegroups\/(getbyid\(\d+\)|getbyname\([^)]*\))\/users/.test(url)) {
+      var byName = url.match(/getbyname\('([^']*)'\)\/users/);
+      var byId = url.match(/getbyid\((\d+)\)\/users/);
+      var groupTitle = null;
+      if (byName) {
+        groupTitle = decodeURIComponent(byName[1]).replace(/''/g, "'");
+      } else if (byId) {
+        var gid = parseInt(byId[1], 10);
+        var g = store.groups.filter(function (x) { return x.Id === gid; })[0];
+        groupTitle = g ? g.Title : null;
       }
-
-      _log('GET', url, 'group members -> ' + members.length + ' users');
+      var members = (groupTitle && store.groupMembers[groupTitle]) || [];
+      var filterParam = _getQueryParam(url, '$filter');
+      if (filterParam) {
+        members = _applyODataFilter(members, decodeURIComponent(filterParam));
+      }
+      _log('GET', url, 'group members "' + groupTitle + '" -> ' + members.length);
       return _ok({ value: members });
     }
 
@@ -473,7 +522,7 @@ var SPInterceptor = (function ($) {
       var list = _ensureList(title);
 
       // Update list properties (Hidden, form URLs, etc.)
-      if (m === 'MERGE' && !/\/items|\/fields|\/views|\/contenttypes/i.test(url)) {
+      if (m === 'MERGE' && !/\/items|\/fields|\/views|\/contenttypes|\/DefaultView/i.test(url)) {
         var lb = _parseBody(settings);
         delete lb.__metadata;
         $.extend(list, lb);
@@ -496,7 +545,7 @@ var SPInterceptor = (function ($) {
         var page = _paginateItems(sorted, caml.rowLimit, pagingInfo);
         var results = page.pageItems.map(function (item) {
           var projected = _filterViewFields(item, caml.viewFields);
-          projected['odata.etag'] = _etagOf(item);
+          projected['odata.etag'] = '"' + item.Id + '"';
           return projected;
         });
 
@@ -515,8 +564,7 @@ var SPInterceptor = (function ($) {
         item.Modified = new Date().toISOString();
         list.items.push(item);
         _log('POST', url, title + ' createItem -> Id ' + item.Id);
-        // nometadata create returns the item WITHOUT an etag (matches real SharePoint)
-        return _ok($.extend({}, item));
+        return _ok($.extend({}, item, { 'odata.etag': '"' + item.Id + '"' }));
       }
 
       // Update item (MERGE)
@@ -526,7 +574,7 @@ var SPInterceptor = (function ($) {
         var target = list.items.find(function (i) { return i.Id === uid; });
         // Simulate 412 when IF-MATCH is supplied and does not match the stored etag
         if (target && ifMatch && ifMatch !== '*') {
-          var storedEtag = _etagOf(target);
+          var storedEtag = '"' + target.Id + '"';
           if (ifMatch !== storedEtag) {
             _log('MERGE', url, title + ' updateItem ' + uid + ' -- 412 ETag mismatch');
             return _fail(412, 'The request ETag value does not match the current value');
@@ -534,10 +582,7 @@ var SPInterceptor = (function ($) {
         }
         var ub = _parseBody(settings);
         delete ub.__metadata;
-        if (target) {
-          $.extend(target, ub, { Modified: new Date().toISOString() });
-          _bumpEtag(target);   // etag changes on every update -- matches real SharePoint
-        }
+        if (target) $.extend(target, ub, { Modified: new Date().toISOString() });
         _log('MERGE', url, title + ' updateItem ' + uid);
         return _ok(undefined);
       }
@@ -549,7 +594,7 @@ var SPInterceptor = (function ($) {
         var delTarget = list.items.find(function (i) { return i.Id === did; });
         // Simulate 412 when IF-MATCH is supplied and does not match the stored etag
         if (delTarget && delIfMatch && delIfMatch !== '*') {
-          var delStoredEtag = _etagOf(delTarget);
+          var delStoredEtag = '"' + delTarget.Id + '"';
           if (delIfMatch !== delStoredEtag) {
             _log('DELETE', url, title + ' deleteItem ' + did + ' -- 412 ETag mismatch');
             return _fail(412, 'The request ETag value does not match the current value');
@@ -604,8 +649,20 @@ var SPInterceptor = (function ($) {
       if (m === 'MERGE' && (/\/DefaultView\s*$/i.test(url) || /\/views\/getbytitle\('[^']+'\)\s*$/i.test(url))) {
         var uvBody = _parseBody(settings);
         var uvLabel = /DefaultView/i.test(url) ? 'DefaultView' : url.match(/getbytitle\('([^']+)'\)/i)[1];
+        if (/DefaultView/i.test(url) && uvBody.TabularView !== undefined) {
+          list.defaultView = list.defaultView || {};
+          list.defaultView.TabularView = uvBody.TabularView;
+        }
         _log('MERGE', url, title + ' updateView: ' + uvLabel + ' ' + JSON.stringify(uvBody));
         return _ok(undefined);
+      }
+
+      // GET DefaultView (TabularView reflects quick-edit state)
+      if (m === 'GET' && /\/DefaultView(\?|\s*$)/i.test(url)) {
+        var dvTab = (list.defaultView && list.defaultView.TabularView !== undefined)
+          ? list.defaultView.TabularView : true;
+        _log('GET', url, title + ' getDefaultView: TabularView=' + dvTab);
+        return _ok({ TabularView: dvTab });
       }
 
       // GET view by title
@@ -647,12 +704,25 @@ var SPInterceptor = (function ($) {
 
       // Get fields
       if (m === 'GET' && url.includes('/fields')) {
-        var filterParam = (url.split('$filter=')[1] || '').split('&')[0];
+        var filterParam = _getQueryParam(url, '$filter');
         var filteredFields = filterParam
           ? _applyODataFilter(list.fields, decodeURIComponent(filterParam))
           : list.fields;
         _log('GET', url, title + ' getFields (' + filteredFields.length + '/' + list.fields.length + ')');
         return _ok({ value: filteredFields });
+      }
+
+      // GET list properties (getbytitle, no subpath) -- e.g. $select=DefaultNewFormUrl
+      if (m === 'GET' && !/\/(items|fields|views|contenttypes|DefaultView)/i.test(url)) {
+        _log('GET', url, title + ' getList');
+        return _ok({
+          Title: title,
+          Id: 'mock-' + title.toLowerCase().replace(/\s/g, '-'),
+          Hidden: !!list.Hidden,
+          DefaultNewFormUrl: list.DefaultNewFormUrl || '',
+          DefaultEditFormUrl: list.DefaultEditFormUrl || '',
+          ServerRelativeUrl: list.ServerRelativeUrl || (_spPageContextInfo.webAbsoluteUrl + '/Lists/' + title),
+        });
       }
 
       // Delete list (DELETE on list endpoint, no /items or /fields subpath)

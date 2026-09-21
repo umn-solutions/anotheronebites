@@ -1,7 +1,7 @@
 import {
   View, Container, Text, TextInput, Button, FormField, Toast
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { createMultiPersonPicker } from '../../../utils/form-helpers.js'
+import { createGroupMemberPicker } from '../../../utils/form-helpers.js'
 
 /**
  * Build the Scopes admin tab with full CRUD against the Scopes list.
@@ -12,9 +12,10 @@ import { createMultiPersonPicker } from '../../../utils/form-helpers.js'
  * @param {object} opts
  * @param {object} opts.listApi - ListApi for the Scopes list
  * @param {object[]} opts.scopeItems - All Scopes rows (active + inactive)
+ * @param {object[]} [opts.memberOptions] - Pre-built options from Users+Admins groups
  * @returns {View}
  */
-export function createScopesTab({ listApi, scopeItems }) {
+export function createScopesTab({ listApi, scopeItems, memberOptions = [] }) {
   // Internal mutable reference used by refresh()
   let currentItems = scopeItems.slice()
 
@@ -24,7 +25,8 @@ export function createScopesTab({ listApi, scopeItems }) {
   async function refresh() {
     try {
       currentItems = await listApi.getItems()
-    } catch {
+    } catch (err) {
+      console.error('[ScopesTab.refresh] getItems failed', err)
       Toast.error('Failed to reload scopes')
       return
     }
@@ -66,7 +68,8 @@ export function createScopesTab({ listApi, scopeItems }) {
         await listApi.updateItem(row.Id, { Members: membersField.value }, row['odata.etag'])
         loading.success('Scope members saved')
         await refresh()
-      } catch {
+      } catch (err) {
+        console.error('[ScopesTab.saveMembers] updateItem failed', err)
         loading.error('Failed to save scope members')
       } finally {
         if (saveBtn.isAlive) saveBtn.isLoading = false
@@ -81,7 +84,8 @@ export function createScopesTab({ listApi, scopeItems }) {
         await listApi.updateItem(row.Id, { IsActive: 'false' }, row['odata.etag'])
         loading.success('Scope disabled')
         await refresh()
-      } catch {
+      } catch (err) {
+        console.error('[ScopesTab.disableScope] updateItem failed', err)
         loading.error('Failed to disable scope')
       } finally {
         if (disableBtn.isAlive) disableBtn.isLoading = false
@@ -89,7 +93,7 @@ export function createScopesTab({ listApi, scopeItems }) {
     })
 
     const heading = new Text(row.Title, { type: 'h4', class: 'app-scope-name' })
-    const picker = createMultiPersonPicker('Members', membersField)
+    const picker = createGroupMemberPicker('Members', membersField, memberOptions)
     const cardActions = new Container([saveBtn, disableBtn], { class: 'app-scope-card-actions' })
 
     return new Container([heading, picker, cardActions], { class: 'app-scope-card' })
@@ -104,7 +108,8 @@ export function createScopesTab({ listApi, scopeItems }) {
         await listApi.updateItem(row.Id, { IsActive: 'true' }, row['odata.etag'])
         loading.success('Scope enabled')
         await refresh()
-      } catch {
+      } catch (err) {
+        console.error('[ScopesTab.enableScope] updateItem failed', err)
         loading.error('Failed to enable scope')
       } finally {
         if (enableBtn.isAlive) enableBtn.isLoading = false
@@ -148,7 +153,8 @@ export function createScopesTab({ listApi, scopeItems }) {
       loading.success('Scope created')
       nameField.value = ''
       await refresh()
-    } catch {
+    } catch (err) {
+      console.error('[ScopesTab.createScope] createItem failed', err)
       loading.error('Failed to create scope')
     } finally {
       if (addBtn.isAlive) addBtn.isLoading = false

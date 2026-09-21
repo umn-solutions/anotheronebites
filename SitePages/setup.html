@@ -68,6 +68,21 @@
       .action-bar .separator { width: 1px; height: 2rem; background: var(--border); margin: 0 0.25rem; }
       .scan-time { font-size: 0.8rem; color: var(--text-muted); margin-left: auto; }
 
+      /* Site-wide controls */
+      .site-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+        padding: 0.6rem 1rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+      }
+      .site-controls:empty { display: none; }
+      .site-controls-label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-right: 0.25rem; }
+
       /* Buttons */
       .btn {
         display: inline-flex;
@@ -213,6 +228,7 @@
     </style>
   </head>
   <body>
+    <input id="__REQUESTDIGEST" type="hidden" value="0x1234MOCK_DIGEST_VALUE_FOR_SANDBOX" />
     <div class="container">
       <div class="header">
         <h1>Site Setup</h1>
@@ -226,14 +242,21 @@
         <button id="btn-sync-all" class="btn btn-secondary" disabled>Sync All</button>
         <div class="separator"></div>
         <select id="gen-count" class="gen-select" disabled>
-          <option value="5">Small (5)</option>
-          <option value="10">Medium (10)</option>
-          <option value="25">Large (25)</option>
-          <option value="50">XL (50)</option>
+          <option value="100">100 tasks</option>
+          <option value="1000">1K tasks</option>
+          <option value="10000">10K tasks</option>
+          <option value="25000">25K tasks</option>
+          <option value="50000">50K tasks</option>
         </select>
         <button id="btn-gen-data" class="btn btn-secondary" disabled>Generate Data</button>
+        <div class="separator"></div>
+        <button id="btn-backup-site" class="btn btn-secondary" disabled>Backup Site</button>
+        <button id="btn-restore-site" class="btn btn-secondary">Restore Site</button>
+        <input type="file" id="file-restore" accept=".txt,.sparcbak" style="display:none" />
         <span id="scan-time" class="scan-time"></span>
       </div>
+
+      <div id="site-controls" class="site-controls"></div>
 
       <div id="list-cards">
         <div class="empty-state">Click "Scan Site" to inspect current list and field state.</div>

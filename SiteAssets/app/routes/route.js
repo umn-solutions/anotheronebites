@@ -2,24 +2,23 @@ import {
 	defineRoute,
 	Text,
 	Container,
+	Button,
+	FormField,
 	TextInput,
 	ComboBox,
-	Button,
-	Image,
-	FormField,
-	SiteApi,
-	Router,
 	Toast,
 	CurrentUser,
+	__lodash,
 } from "../libs/nofbiz/nofbiz.base.js";
 import {
 	LIST_PROJECTS,
 	LIST_PROGRAMS,
 	LIST_PROPOSALS,
 	ITEM_TYPES,
-	APP_PERMISSIONS,
+	PROJECT_STATUSES,
+	PROJECT_TYPES,
+	APP_NAME,
 } from "../utils/constants.js";
-import { loadDefinitions } from "../utils/definitions.js";
 import { loadScopes, getScopeOptions } from "../utils/scopes.js";
 import {
 	createProjectCard,
@@ -27,26 +26,106 @@ import {
 	createProposalCard,
 } from "../utils/project-card.js";
 import { buildSearchQuery, applyFilters } from "../utils/search.js";
-import { getAppRoles, getAppSiteApi } from "../utils/app-state.js";
-import { filterProjectsByAccess, filterProposalsByAccess, fetchAllDelegations, fetchUserScopes } from "../utils/access-control.js";
+import { comboValue } from "../utils/form-helpers.js";
+import { getAppSiteApi } from "../utils/app-state.js";
+import {
+	filterProjectsByAccess,
+	filterProposalsByAccess,
+	filterProgramsByAccess,
+	fetchAllDelegations,
+	fetchUserScopes,
+} from "../utils/access-control.js";
 
 export default defineRoute(async (config) => {
-	config.setRouteTitle("Management Platform");
+	config.setRouteTitle(APP_NAME);
 
 	const user = new CurrentUser();
-	const roles = getAppRoles();
 	const siteApi = getAppSiteApi();
-	const canAccessAdmin = roles.canAccess("adminArea", APP_PERMISSIONS);
+	const canAccessAdmin = user.accessLevel === 'ADMIN';
 
-	const [defs, scopeItems] = await Promise.all([
-		loadDefinitions(siteApi),
-		loadScopes(siteApi),
-	]);
-	const projectStatuses = defs.get('ProjectStatuses');
-	const projectTypes = defs.get('ProjectTypes');
-	const pmScopeOptions = getScopeOptions(scopeItems);
+	// Fetch scope options for the PM scope filter
+	let pmScopeOptions = [];
+	try {
+		const scopeItems = await loadScopes(siteApi);
+		pmScopeOptions = getScopeOptions(scopeItems);
+	} catch (err) {
+		console.error("[Home] Failed to load scopes:", err);
+	}
 
-	// Card factory -- dispatch on _type tag
+	// ------------------------------------------------------------------
+	// State
+	// ------------------------------------------------------------------
+
+	// Search query FormField — drives the idle/active toggle and the server fetch
+	const queryField = new FormField({ value: "" });
+
+	// Filter FormFields — value changes trigger client-side re-filter
+	const itemTypeFilter = new FormField({ value: "" });
+	const statusFilter = new FormField({ value: "" });
+	const typeFilter = new FormField({ value: "" });
+	const pmScopeFilter = new FormField({ value: "" });
+
+	// Backing data (set after each server search)
+	let currentResults = [];
+
+	// ------------------------------------------------------------------
+	// Lodash debounce for the server fetch (300ms). The FormField itself is
+	// updated on every keystroke (debounceMs: 0 on TextInput) so the
+	// idle/active class toggle fires immediately, while the API call is
+	// throttled to avoid hammering the server.
+	// ------------------------------------------------------------------
+
+	const debouncedSearch = __lodash.debounce((text) => performSearch(text), 300);
+
+	// ------------------------------------------------------------------
+	// Stage ref (set once the tree is built; toggled by subscribe)
+	// ------------------------------------------------------------------
+
+	/** @type {Container|null} */
+	let stage = null;
+
+	// ------------------------------------------------------------------
+	// Active / idle class toggle (single source of truth for the animation)
+	// ------------------------------------------------------------------
+
+	function setActiveState(active) {
+		if (!stage?.isAlive) return;
+		if (active) {
+			stage.instance?.addClass("is-active");
+		} else {
+			stage.instance?.removeClass("is-active");
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Result count text node (updated via .children setter)
+	// ------------------------------------------------------------------
+
+	const resultCountText = new Text("", {
+		type: "span",
+		class: "app-home-bar__count-text",
+	});
+
+	const resultCountNode = new Container([resultCountText], {
+		class: "app-home-bar__count",
+	});
+
+	function updateResultCount(filtered) {
+		const q = queryField.value;
+		if (q.trim().length > 0) {
+			const n = filtered.length;
+			resultCountText.children = [
+				`${n} ${n === 1 ? "result" : "results"} for "${q}"`,
+			];
+		} else {
+			resultCountText.children = [""];
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Helpers
+	// ------------------------------------------------------------------
+
 	function buildCards(items) {
 		return items.map((item) => {
 			if (item._type === "program") return createProgramCard(item);
@@ -55,240 +134,331 @@ export default defineRoute(async (config) => {
 		});
 	}
 
-	// Results grid container (starts empty -- data loads on search)
-	const resultsGrid = new Container([], {
-		class: "app-card-grid",
-	});
+	// ------------------------------------------------------------------
+	// Render results + empty state
+	// ------------------------------------------------------------------
 
-	// Empty state
-	const emptyState = new Text("No projects found", {
-		type: "p",
-		class: "app-empty-state",
-	});
+	function renderResults() {
+		if (!stage?.isAlive) return;
 
-	// Inline debounce utility (simple closure)
-	let debounceTimer = null;
-	function debounce(fn, ms) {
-		return function () {
-			clearTimeout(debounceTimer);
-			debounceTimer = setTimeout(fn, ms);
-		};
+		const filtered = applyFilters(currentResults, {
+			itemType: comboValue(itemTypeFilter.value),
+			status: comboValue(statusFilter.value),
+			projectType: comboValue(typeFilter.value),
+			pmScope: comboValue(pmScopeFilter.value),
+		});
+
+		const isEmpty =
+			queryField.value.trim().length > 0 && filtered.length === 0;
+
+		if (resultsGridContainer?.isAlive) {
+			resultsGridContainer.children = isEmpty ? [] : buildCards(filtered);
+		}
+
+		if (emptyStateContainer?.isAlive) {
+			if (isEmpty) {
+				emptyStateContainer.instance?.addClass("is-shown");
+			} else {
+				emptyStateContainer.instance?.removeClass("is-shown");
+			}
+		}
+
+		updateResultCount(filtered);
 	}
 
-	// Hero-to-active transition state
-	let isActive = false;
+	// ------------------------------------------------------------------
+	// Search (server-side query + access filtering)
+	// ------------------------------------------------------------------
 
-	function activate() {
-		if (isActive) return;
-		isActive = true;
-		if (!wrapper?.isAlive) return;
-		wrapper.instance?.removeClass("app-landing--hero");
-		heroSection.instance?.fadeOut(300);
-		extrasContainer.instance?.addClass("app-toolbar-extras--visible");
-		resultsSection.instance?.addClass("app-landing-results--visible");
-	}
+	async function performSearch(text) {
+		if (!text.trim()) return;
 
-	// Server-side search state
-	let currentResults = [];
-
-	async function performSearch(searchText) {
-		activate();
 		const loading = Toast.loading("Searching...");
 		try {
-			const [projects, programs, proposals, delegations, userScopes] = await Promise.all([
-				siteApi.list(LIST_PROJECTS).getItems(buildSearchQuery(searchText, "project")),
-				siteApi.list(LIST_PROGRAMS).getItems(buildSearchQuery(searchText, "program")),
-				siteApi.list(LIST_PROPOSALS).getItems(buildSearchQuery(searchText, "proposal")),
-				fetchAllDelegations(siteApi),
-				fetchUserScopes(siteApi, user.get("email")),
-			]);
+			const [projects, programs, proposals, delegations, userScopes] =
+				await Promise.all([
+					siteApi
+						.list(LIST_PROJECTS)
+						.getItems(buildSearchQuery(text, "project")),
+					siteApi
+						.list(LIST_PROGRAMS)
+						.getItems(buildSearchQuery(text, "program")),
+					siteApi
+						.list(LIST_PROPOSALS)
+						.getItems(buildSearchQuery(text, "proposal")),
+					fetchAllDelegations(siteApi),
+					fetchUserScopes(siteApi, user.get("email")),
+				]);
 
 			const userEmail = user.get("email");
 			const accessLevel = user.accessLevel;
-			const filteredProjects = filterProjectsByAccess(projects, userEmail, accessLevel, delegations, userScopes);
-			const filteredProposals = filterProposalsByAccess(proposals, userEmail, accessLevel);
+
+			const filteredProjects = filterProjectsByAccess(
+				projects,
+				userEmail,
+				accessLevel,
+				delegations,
+				userScopes,
+			);
+			const filteredProposals = filterProposalsByAccess(
+				proposals,
+				userEmail,
+				accessLevel,
+				userScopes,
+			);
+			const filteredPrograms = filterProgramsByAccess(
+				programs,
+				userEmail,
+				accessLevel,
+				userScopes,
+			);
 
 			currentResults = [
 				...filteredProjects.map((p) => ({ ...p, _type: "project" })),
-				...programs.map((p) => ({ ...p, _type: "program" })),
+				...filteredPrograms.map((p) => ({ ...p, _type: "program" })),
 				...filteredProposals.map((p) => ({ ...p, _type: "proposal" })),
 			];
+
 			loading.dismiss();
-			updateFiltersState();
 			renderResults();
-		} catch {
-			loading.error("Search failed");
+		} catch (err) {
+			console.error("[Home] Search failed:", err);
+			loading.error("Search failed. Please try again.");
 			currentResults = [];
-			updateFiltersState();
-			resultsGrid.children = [emptyState];
+			renderResults();
 		}
 	}
 
-	function renderResults() {
-		const filtered = applyFilters(currentResults, {
-			itemType: itemTypeFilter.value?.value || "",
-			status: statusFilter.value?.value || "",
-			projectType: typeFilter.value?.value || "",
-			pmScope: pmScopeFilter.value?.value || "",
-		});
-		resultsGrid.children =
-			filtered.length > 0 ? buildCards(filtered) : [emptyState];
+	// ------------------------------------------------------------------
+	// Clear search — resets the FormField which triggers the subscriber
+	// which fires setActiveState(false) and renderResults()
+	// ------------------------------------------------------------------
+
+	function clearSearch() {
+		queryField.value = "";
 	}
 
-	function updateFiltersState() {
-		const hasData = currentResults.length > 0;
-		itemTypeCombo.isDisabled = !hasData;
-		statusCombo.isDisabled = !hasData;
-		typeCombo.isDisabled = !hasData;
-		if (canAccessAdmin) pmScopeCombo.isDisabled = !hasData;
-	}
+	// ------------------------------------------------------------------
+	// QueryField subscriber:
+	// - Fires setActiveState on every keystroke (debounceMs:0 on TextInput)
+	// - Fires debouncedSearch for the actual API call
+	// This is the ONLY place where the is-active class is managed.
+	// ------------------------------------------------------------------
 
-	const debouncedSearch = debounce(() => performSearch(searchField.value), 500);
+	queryField.subscribe((text) => {
+		const active = text.trim().length > 0;
+		setActiveState(active);
 
-	// Search input (debounced at 500ms -- server calls need more breathing room)
-	const searchField = new FormField({ value: "" });
-	const searchInput = new TextInput(searchField, {
-		placeholder: "Search projects...",
-	});
-	searchInput.setEventHandler("input", (e) => {
-		searchField.value = e.target.value;
-	});
+		if (!active) {
+			currentResults = [];
+			renderResults();
+			debouncedSearch.cancel();
+			return;
+		}
 
-	// Filter ComboBoxes -- subscribers registered after wrapper exists (see bottom)
-	const itemTypeFilter = new FormField({ value: "" });
-	const statusFilter = new FormField({ value: "" });
-	const typeFilter = new FormField({ value: "" });
-
-	const itemTypeCombo = new ComboBox(itemTypeFilter, ITEM_TYPES, {
-		placeholder: "Type",
-		allowFiltering: false,
-	});
-	const statusCombo = new ComboBox(statusFilter, projectStatuses, {
-		placeholder: "Status",
-		allowFiltering: false,
-	});
-	const typeCombo = new ComboBox(typeFilter, projectTypes, {
-		placeholder: "Project Type",
-		allowFiltering: false,
+		debouncedSearch(text);
 	});
 
-	const pmScopeFilter = new FormField({ value: "" });
-	const pmScopeCombo = new ComboBox(pmScopeFilter, pmScopeOptions, {
-		placeholder: "PM Scope",
-		allowFiltering: false,
-	});
+	// ------------------------------------------------------------------
+	// "/" key shortcut (focus field; only when not inside an editable)
+	// Self-cleaning via AbortController.
+	// ------------------------------------------------------------------
 
-	// Create dropdown button
-	const dropdownMenu = new Container(
-		[
-			new Button("Project", {
-				variant: "ghost",
-				onClickHandler: () => Router.navigateTo("projects/new"),
-			}),
-			new Button("Program", {
-				variant: "ghost",
-				onClickHandler: () => Router.navigateTo("programs/new"),
-			}),
-			new Button("Proposal", {
-				variant: "ghost",
-				onClickHandler: () => Router.navigateTo("proposals/new"),
-			}),
-		],
-		{ class: "app-create-dropdown" },
+	const keyAbort = new AbortController();
+
+	document.addEventListener(
+		"keydown",
+		(e) => {
+			if (!stage?.isAlive) {
+				keyAbort.abort();
+				return;
+			}
+			if (
+				e.key === "/" &&
+				document.activeElement?.tagName !== "INPUT" &&
+				document.activeElement?.tagName !== "TEXTAREA" &&
+				document.activeElement?.tagName !== "SELECT"
+			) {
+				e.preventDefault();
+				queryTextInput.focusOnInput();
+			}
+		},
+		{ signal: keyAbort.signal },
 	);
 
-	const createBtn = new Button("Create...", {
-		variant: "primary",
-		onClickHandler: () => {
-			dropdownMenu.instance?.toggleClass("app-create-dropdown--open");
-		},
+	// ------------------------------------------------------------------
+	// Component tree
+	// ------------------------------------------------------------------
+
+	// --- Hero block ---
+
+	const hero = new Container(
+		[
+			new Text("Find a project, program or proposal.", {
+				type: "h1",
+				class: "app-home-hero__title",
+			}),
+			new Text(
+				"Start typing and the portfolio appears — filters come with it.",
+				{ type: "p", class: "app-home-hero__sub" },
+			),
+		],
+		{ class: "app-home-hero" },
+	);
+
+	// --- Background layer (idle-only; fades out on is-active) ---
+	// The background image is applied purely via CSS background-image on
+	// .app-home-bg-img-wrap — no <img> element, no DOM injection.
+
+	const bgLayer = new Container(
+		[
+			new Container([], { class: "app-home-bg-img-wrap" }),
+			new Container([], { class: "app-home-veil" }),
+		],
+		{ class: "app-home-bg" },
+	);
+
+	// --- Persistent search field ---
+	// TextInput bound to queryField with debounceMs:0 so the FormField is
+	// updated on every keystroke, firing the subscriber immediately.
+	// The actual server call is debounced separately inside the subscriber.
+
+	const queryTextInput = new TextInput(queryField, {
+		placeholder: "Search projects…",
+		debounceMs: 0,
+		autocomplete: false,
+		spellcheck: false,
 	});
 
-	// Hero section -- logo, hidden when active
-	const heroImage = new Image("../SiteAssets/media/logo.png", {
-		alt: "Platform banner",
-		class: "app-hero-logo",
-	});
-	const heroSection = new Container([heroImage], {
-		class: "app-hero-section",
+	// "x" clear affordance (active only — hidden by CSS when not is-active)
+	const clearBtn = new Button("x", {
+		class: "app-home-clear",
+		onClickHandler: clearSearch,
 	});
 
-	// Toolbar extras -- filters, hidden in hero mode
-	const extrasContainer = new Container(
+	const searchFieldComp = new Container(
+		[
+			new Container([], { class: "app-home-icon" }),
+			queryTextInput,
+			clearBtn,
+		],
+		{ class: "app-home-field" },
+	);
+
+	// --- Filter bar (drops in from top on is-active) ---
+	// Four ComboBox filters bound to their respective FormFields.
+	// allowFiltering: false keeps them as plain selects without the search bar.
+
+	const itemTypeCombo = new ComboBox(itemTypeFilter, ITEM_TYPES, {
+		allowFiltering: false,
+		placeholder: "Type",
+	});
+
+	const statusCombo = new ComboBox(statusFilter, PROJECT_STATUSES, {
+		allowFiltering: false,
+		placeholder: "Status",
+	});
+
+	const projTypeCombo = new ComboBox(typeFilter, PROJECT_TYPES, {
+		allowFiltering: false,
+		placeholder: "Project type",
+	});
+
+	const pmScopeCombo = canAccessAdmin
+		? new ComboBox(pmScopeFilter, pmScopeOptions, {
+				allowFiltering: false,
+				placeholder: "PM scope",
+			})
+		: null;
+
+	const filterBar = new Container(
 		[
 			itemTypeCombo,
 			statusCombo,
-			typeCombo,
+			projTypeCombo,
 			...(canAccessAdmin ? [pmScopeCombo] : []),
-			new Button("Question Based Filters", { isDisabled: true }),
+			resultCountNode,
 		],
-		{ class: "app-toolbar-extras" },
+		{ class: "app-home-bar" },
 	);
 
-	// Create button + dropdown wrapper (dropdown width matches button)
-	const createBtnWrapper = new Container(
-		[createBtn, dropdownMenu],
-		{ class: "app-create-wrapper" },
-	);
+	// --- Results grid ---
 
-	// Create button -- pushed to the right of the toolbar
-	const toolbarActions = [];
-	if (canAccessAdmin) {
-		toolbarActions.push(
-			new Button("Admin Area", {
-				onClickHandler: () => Router.navigateTo("admin"),
+	const resultsGrid = new Container([], { class: "app-home-grid" });
+
+	// --- Empty state ---
+
+	const emptyState = new Container(
+		[
+			new Container(
+				[
+					new Container([], {
+						class: "app-home-empty__sq app-home-empty__sq--sm",
+					}),
+					new Container([], {
+						class: "app-home-empty__sq app-home-empty__sq--md",
+					}),
+					new Container([], {
+						class: "app-home-empty__sq app-home-empty__sq--lg",
+					}),
+				],
+				{ class: "app-home-empty__squares" },
+			),
+			new Text("Nothing matches your search", {
+				type: "h2",
+				class: "app-home-empty__heading",
 			}),
-		);
-	}
-	toolbarActions.push(createBtnWrapper);
+			new Text(
+				"Try a shorter search term, or clear the filters.",
+				{ type: "p", class: "app-home-empty__desc" },
+			),
+			new Button("Clear search", {
+				class: "app-btn-wash",
+				onClickHandler: clearSearch,
+			}),
+		],
+		{ class: "app-home-empty" },
+	);
 
-	const createBtnsContainer = new Container(toolbarActions, {
-		class: "app-toolbar-actions",
+	// --- Results area ---
+
+	const resultsArea = new Container([resultsGrid, emptyState], {
+		class: "app-home-results",
 	});
 
-	// Close dropdown on outside click (self-cleaning via AbortController)
-	const dropdownAbort = new AbortController();
-	document.addEventListener(
-		"click",
-		(e) => {
-			if (!createBtnsContainer.isAlive) {
-				dropdownAbort.abort();
-				return;
-			}
-			const el = createBtnsContainer.instance?.[0];
-			if (el && !el.contains(e.target)) {
-				dropdownMenu.instance?.removeClass("app-create-dropdown--open");
-			}
-		},
-		{ signal: dropdownAbort.signal },
+	// Assign module-level refs now that the component instances exist
+	// (no setTimeout needed — these are direct variable assignments)
+	const resultsGridContainer = resultsGrid;
+	const emptyStateContainer = emptyState;
+
+	// --- Stage (outermost; is-active drives both geometries) ---
+
+	const stageComp = new Container(
+		[bgLayer, hero, filterBar, searchFieldComp, resultsArea],
+		{ class: "app-home-stage" },
 	);
 
-	// Search toolbar -- full-width navbar in active mode, centered in hero
-	const searchToolbar = new Container(
-		[searchInput, extrasContainer, createBtnsContainer],
-		{ class: "app-search-toolbar" },
-	);
+	// Assign stage ref so setActiveState can toggle the class
+	stage = stageComp;
 
-	// Results section -- hidden in hero mode
-	const resultsSection = new Container([resultsGrid], {
-		class: "app-landing-results",
-	});
+	// ------------------------------------------------------------------
+	// FormField subscriptions (client-side re-filter on ComboBox change)
+	// The ComboBox automatically updates its bound FormField when the user
+	// selects an option; subscribing here re-runs the filter on each change.
+	// ------------------------------------------------------------------
 
-	// Root wrapper -- starts in hero mode
-	const wrapper = new Container(
-		[heroSection, searchToolbar, resultsSection],
-		{ class: "app-landing app-landing--hero" },
-	);
-
-	// Filters start disabled (no data yet)
-	updateFiltersState();
-
-	// Subscribe -- search triggers server query, filters apply client-side
-	searchField.subscribe(debouncedSearch);
 	itemTypeFilter.subscribe(renderResults);
 	statusFilter.subscribe(renderResults);
 	typeFilter.subscribe(renderResults);
 	if (canAccessAdmin) pmScopeFilter.subscribe(renderResults);
 
-	return [wrapper];
+	// ------------------------------------------------------------------
+	// Cleanup:
+	// FormFields are disposed by the Router when it tears down the route
+	// closure. The keydown listener self-cancels via keyAbort when
+	// stage.isAlive turns false. No explicit dispose needed here because
+	// there are no cross-route references holding these FormFields alive.
+	// ------------------------------------------------------------------
+
+	return [stageComp];
 });

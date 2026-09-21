@@ -52,8 +52,7 @@ export async function createTeamTab({ siteApi, pmGroupMembers }) {
     const breakdownRows = activeAllocations.length > 0
       ? activeAllocations.map(a => {
           const project = projectByUUID[a.ProjectUUID]
-          const role = project.Role || ''
-          const label = [role, a.ProjectUUID, project.Title].filter(Boolean).join(' ')
+          const label = project.Title || a.ProjectUUID
           return new Container([
             new Text(label, { type: 'span', class: 'app-team-project-id' }),
             new Text(a.AllocationPercent + ' FTE', { type: 'span', class: 'app-team-project-percent' }),

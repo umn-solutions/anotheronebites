@@ -1,3 +1,4 @@
+import { spGET } from '../app/libs/nofbiz/nofbiz.base.js'
 import { log } from './log.js'
 
 export function computeDiff(schemaFields, liveFields, builtinFields) {
@@ -47,7 +48,18 @@ export function diffSummary(diff) {
   return parts.join(' | ');
 }
 
-export async function scanSite(siteApi, schema, builtinFields) {
+export function siteAggregate(scanResult) {
+  const lists = Object.values(scanResult).filter(r => r.exists);
+  const count = lists.length;
+  return {
+    count,
+    allHidden: count > 0 && lists.every(r => r.hidden),
+    allQuickDisabled: count > 0 && lists.every(r => r.quickEditDisabled),
+    allFormsRedirected: count > 0 && lists.every(r => r.formsRedirected),
+  };
+}
+
+export async function scanSite(siteApi, schema, builtinFields, appUrl) {
   log('Scanning site...', 'info');
 
   const result = {};
@@ -64,11 +76,17 @@ export async function scanSite(siteApi, schema, builtinFields) {
 
   for (const listName of Object.keys(schema)) {
     const exists = listTitles.has(listName);
-    result[listName] = { exists, hidden: false, fields: [], diff: [] };
+    result[listName] = {
+      exists, hidden: false, url: null,
+      quickEditDisabled: false, formsRedirected: false,
+      fields: [], diff: [],
+    };
 
     if (exists) {
       const liveList = siteLists.find(l => l.Title === listName);
       result[listName].hidden = liveList?.Hidden ?? false;
+      result[listName].url = liveList?.ServerRelativeUrl
+        || `${_spPageContextInfo.webAbsoluteUrl}/Lists/${encodeURIComponent(listName)}`;
       try {
         const listApi = siteApi.list(listName);
         const liveFields = await listApi.getFields();
@@ -77,6 +95,20 @@ export async function scanSite(siteApi, schema, builtinFields) {
         log(listName + ': ' + diffSummary(result[listName].diff));
       } catch (e) {
         log(listName + ': failed to read fields -- ' + e.message, 'error');
+      }
+
+      const listBase = `${_spPageContextInfo.webAbsoluteUrl}/_api/web/lists/getbytitle('${listName}')`;
+      try {
+        const dv = await spGET(`${listBase}/DefaultView?$select=TabularView`);
+        result[listName].quickEditDisabled = dv?.TabularView === false;
+      } catch (e) {
+        console.warn('[scan] DefaultView read failed for ' + listName, e);
+      }
+      try {
+        const info = await spGET(`${listBase}?$select=DefaultNewFormUrl,DefaultEditFormUrl`);
+        result[listName].formsRedirected = !!appUrl && info?.DefaultNewFormUrl === appUrl;
+      } catch (e) {
+        console.warn('[scan] forms read failed for ' + listName, e);
       }
     } else {
       result[listName].diff = schema[listName].map(sf => ({

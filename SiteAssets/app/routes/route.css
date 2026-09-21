@@ -1,218 +1,617 @@
-/* Landing route -- layout, hero-to-active transition, cards */
+/* ==========================================================================
+   Home route (5a) — idle/active transition, field docking, result cards
+   All classes are app-prefixed. Foundation (buttons, empty-state, status
+   badges, overlines) comes from app.css — not duplicated here.
+   ========================================================================== */
 
-.app-landing {
-  width: 100%;
-  margin: 0 auto;
+/* ---------- Stage ---------- */
+
+.app-home-stage {
   position: relative;
+  flex: 1;
+  /* The route mounts this directly into #root (not a flex row), so flex:1 is
+     inert here -- set an explicit width so the absolutely-positioned children
+     (hero, field, results) have a full-width positioning context. */
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--app-bg-surface);
+  transition: background 420ms cubic-bezier(.33, 0, .67, 1);
+  /* Fill the viewport below the global header */
+  min-height: calc(100vh - 64px);
 }
 
-/* -- Hero mode (default on load) -- */
-
-.app-landing--hero {
-  min-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+.app-home-stage.is-active {
+  background: var(--app-bg-page);
 }
 
-.app-hero-section { text-align: center; }
+/* ---------- Background layer (idle only) ---------- */
 
-.app-hero-logo {
-  max-height: 100px;
-  object-fit: contain;
+.app-home-bg {
   position: absolute;
-  top: 35vh;
-  left: 50%;
-  transform: translate(-35%,-50%);
+  inset: 0;
+  opacity: 1;
+  transition: opacity 320ms cubic-bezier(.33, 0, .67, 1);
+  pointer-events: none;
 }
 
-.app-landing--hero .app-search-toolbar {
-  margin-top: 50vh;
-  justify-content: center;
-  border-bottom: none;
-  background: transparent;
+.app-home-stage.is-active .app-home-bg {
+  opacity: 0;
+  pointer-events: none;
 }
 
-.app-landing--hero .nofbiz__textinput {
-  width: min(600px, 90vw);
-  padding: 0.75em 1.25em;
-  font-size: 1.15rem;
-  border-radius: var(--radius-xl);
-}
-
-/* Create button -- always visible, top-right in hero mode */
-.app-toolbar-actions { margin-left: auto; position: relative; display: flex; gap: 0.5rem; }
-
-.app-landing--hero .app-toolbar-actions {
+/* Background photo applied via CSS — no <img> element injected.
+   Path from route.css (routes/) to media: ../../media/bg.jpg
+   (routes/ -> app/ -> SiteAssets/ -> media/ is wrong; correct depth:
+    routes/route.css is at SiteAssets/app/routes/route.css
+    media/bg.jpg is at SiteAssets/media/bg.jpg
+    so the relative path is: ../../media/bg.jpg) */
+.app-home-bg-img-wrap {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  inset: 0;
+  background-image: url("../../media/bg.jpg");
+  background-size: cover;
+  background-position: left center;
+  background-repeat: no-repeat;
 }
 
-/* Create button + dropdown wrapper */
-.app-create-wrapper { position: relative; }
-
-/* Create dropdown */
-.app-create-dropdown {
-  display: none;
+.app-home-veil {
   position: absolute;
-  top: 100%;
+  inset: 0;
+  pointer-events: none;
+  /* Gradient from README: guarantees 4.5:1 on hero copy */
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, .96) 0%,
+    rgba(255, 255, 255, .92) 55%,
+    rgba(255, 255, 255, .80) 100%
+  );
+}
+
+/* ---------- Hero block ---------- */
+
+.app-home-hero {
+  position: absolute;
   left: 0;
   right: 0;
-  margin-top: 0.25rem;
-  background: var(--color-bg-base);
-  border: var(--stroke-thin) solid var(--app-border);
-  border-radius: var(--radius-md, 6px);
-  box-shadow: var(--shadow-4);
-  z-index: 20;
+  top: 112px;
+  display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  z-index: 2;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 260ms cubic-bezier(.33, 0, .67, 1),
+              transform 420ms cubic-bezier(.33, 0, .67, 1);
+  pointer-events: auto;
 }
 
-.app-create-dropdown--open { display: flex; }
-
-.app-create-dropdown .nofbiz__button {
-  width: 100%;
-  justify-content: flex-start;
-  border-radius: 0;
-  padding: 0.5rem 1rem;
+.app-home-stage.is-active .app-home-hero {
+  opacity: 0;
+  transform: translateY(-24px);
+  pointer-events: none;
 }
 
-.app-create-dropdown .nofbiz__button:first-child { border-radius: var(--radius-md, 6px) var(--radius-md, 6px) 0 0; }
-.app-create-dropdown .nofbiz__button:last-child { border-radius: 0 0 var(--radius-md, 6px) var(--radius-md, 6px); }
+.app-home-hero__title {
+  font-size: var(--font-size-700);
+  line-height: var(--line-height-700);
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+  margin: 0;
+}
 
-/* Hidden in hero mode */
-.app-toolbar-extras,
-.app-landing-results { display: none; }
+.app-home-hero__sub {
+  font-size: var(--font-size-400);
+  line-height: 22px;
+  color: var(--app-fg-muted);
+  max-width: 520px;
+  margin: 0;
+}
 
-/* -- Active mode (after first interaction) -- */
+/* ---------- Persistent search field ---------- */
 
-.app-search-toolbar {
+/*
+  The field occupies a SINGLE DOM position in both states.
+  Idle: centred at top 232px, 660×56.
+  Active: docked top-left at 32/12, 320×36.
+  Both geometries are driven by the is-active class on .app-home-stage —
+  NEVER computed via inline JS styles.
+*/
+
+.app-home-field {
+  position: absolute;
+  left: 50%;
+  top: 232px;
+  width: 660px;
+  height: 56px;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  padding: 0.75rem var(--app-spacing);
+  gap: 12px;
+  padding: 0 20px;
+  box-sizing: border-box;
+  background: var(--app-bg-surface);
+  border: var(--stroke-thin) solid var(--app-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--app-card-shadow);
+  z-index: 3;
+  /* All geometry and colour transitions in one declaration */
+  transition:
+    left    420ms cubic-bezier(.33, 0, .67, 1),
+    top     420ms cubic-bezier(.33, 0, .67, 1),
+    width   420ms cubic-bezier(.33, 0, .67, 1),
+    height  420ms cubic-bezier(.33, 0, .67, 1),
+    transform 420ms cubic-bezier(.33, 0, .67, 1),
+    padding 420ms cubic-bezier(.33, 0, .67, 1),
+    border-color 240ms linear,
+    box-shadow   240ms linear;
+}
+
+.app-home-stage.is-active .app-home-field {
+  left: 32px;
+  top: 12px;
+  width: 320px;
+  height: 36px;
+  transform: translateX(0);
+  padding: 0 12px;
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 2px var(--app-wash);
+}
+
+/* ---------- Magnifier icon ---------- */
+
+.app-home-icon {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--app-fg-muted);
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+  transition: border-color 240ms linear;
+}
+
+/* The handle */
+.app-home-icon::after {
+  content: '';
+  position: absolute;
+  width: 2px;
+  height: 7px;
+  background: var(--app-fg-muted);
+  right: -5px;
+  bottom: -6px;
+  transform: rotate(-45deg);
+  transition: background 240ms linear;
+}
+
+.app-home-stage.is-active .app-home-icon {
+  border-color: var(--app-primary);
+}
+
+.app-home-stage.is-active .app-home-icon::after {
+  background: var(--app-primary);
+}
+
+/* ---------- TextInput inside the search field ---------- */
+
+/*
+  TextInput renders as the SPARC component shell wrapping a .nofbiz__textinput
+  input element. We target the inner input to strip the component's default
+  border/background and apply the search-field font scaling.
+  The outer component shell is forced to fill the available flex width.
+*/
+
+.app-home-field .nofbiz__textinput {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-family-base);
+  color: var(--app-fg);
   width: 100%;
-  border-bottom: var(--stroke-thin) solid var(--app-border);
-  background: var(--app-bg-light);
+  padding: 0;
+  font-size: 18px;
+  transition: font-size 420ms cubic-bezier(.33, 0, .67, 1);
+  box-shadow: none;
 }
 
-/* Sticky toolbar once hero mode exits */
-.app-landing:not(.app-landing--hero) .app-search-toolbar {
-  position: sticky;
+.app-home-stage.is-active .app-home-field .nofbiz__textinput {
+  font-size: var(--font-size-300);
+}
+
+.app-home-field .nofbiz__textinput::placeholder {
+  color: var(--app-fg-disabled);
+}
+
+/* Force the FormControl wrapper to take up the remaining flex space */
+.app-home-field .nofbiz__formcontrol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+/* ---------- Clear affordance (active only) ---------- */
+
+/* Square clear button hugging the right edge. Higher specificity than the
+   SPARC .form-control base so the button doesn't stretch to fill the field. */
+.app-home-field .app-home-clear {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-300);
+  line-height: 1;
+  color: var(--app-fg-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.app-home-stage.is-active .app-home-field .app-home-clear {
+  display: inline-flex;
+}
+
+/* ---------- Filter bar (active only) ---------- */
+
+.app-home-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
   top: 0;
-  z-index: 10;
+  height: 60px;
+  background: var(--app-bg-surface);
+  border-bottom: var(--stroke-thin) solid var(--app-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Left inset reserves the docked field slot (32 + 320 + 20 gap) */
+  padding: 0 32px 0 372px;
+  box-sizing: border-box;
+  z-index: 2;
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
+  transition:
+    opacity   240ms cubic-bezier(.33, 0, .67, 1) 80ms,
+    transform 380ms cubic-bezier(.33, 0, .67, 1) 80ms;
 }
 
-.app-toolbar-extras--visible { display: contents; }
-
-.app-landing-results--visible {
-  display: block;
-  max-width: var(--app-max-width);
-  margin: 0 auto;
-  padding: var(--app-spacing);
-  animation: app-fade-in 0.25s ease;
+.app-home-stage.is-active .app-home-bar {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
-@keyframes app-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+/* ComboBox components used for the four filter dropdowns.
+   The SPARC ComboBox renders a .nofbiz__combobox wrapper; we constrain it
+   to 150px and override the height to match the 36px filter-bar spec.
+   The dropdown trigger button inside it inherits the sizing. */
+
+.app-home-bar .nofbiz__combobox {
+  /* Share the row's width and shrink below the 1440px design width so the
+     four filters + count never overflow past the docked-field left inset. */
+  flex: 1 1 90px;
+  min-width: 0;
+  max-width: 150px;
 }
 
-/* ---------- Card Grid ---------- */
+/* The searchbar element that shows the selected value / placeholder */
+.app-home-bar .nofbiz__combobox .nofbiz__combobox__searchbar {
+  height: 36px;
+  border: var(--stroke-thin) solid var(--app-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--app-bg-surface);
+  padding: 0 28px 0 12px;
+  font-size: var(--font-size-300);
+  font-family: var(--font-family-base);
+  color: var(--app-fg-muted);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+}
 
-.app-card-grid {
+.app-home-bar .nofbiz__combobox .nofbiz__combobox__searchbar:hover {
+  background-color: var(--app-bg-page);
+}
+
+.app-home-bar .nofbiz__combobox .nofbiz__combobox__searchbar:focus-within {
+  outline: none;
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 2px var(--app-wash);
+}
+
+/* Right-aligned result count */
+.app-home-bar__count {
+  margin-left: auto;
+  font-size: var(--font-size-200);
+  color: var(--app-fg-muted);
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Results area ---------- */
+
+.app-home-results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 60px;
+  bottom: 0;
+  padding: 24px 32px;
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.app-home-stage.is-active .app-home-results {
+  pointer-events: auto;
+}
+
+/* ---------- Result card grid ---------- */
+
+.app-home-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--app-card-gap);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
 }
 
-/* ---------- Project Card ---------- */
+@media (max-width: 1024px) {
+  .app-home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
-.app-project-card {
+@media (max-width: 600px) {
+  .app-home-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- Result card ---------- */
+
+.app-result-card {
+  background: var(--app-bg-surface);
+  border: var(--stroke-thin) solid var(--app-border);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--app-card-shadow);
   cursor: pointer;
-  transition: box-shadow 0.2s;
+  min-height: 168px;
+  box-sizing: border-box;
+  /* Start invisible/shifted; animate to visible once is-active fires */
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity   280ms cubic-bezier(.33, 0, .67, 1),
+    transform 380ms cubic-bezier(.33, 0, .67, 1),
+    box-shadow 150ms cubic-bezier(.33, 0, .67, 1);
 }
 
-.app-project-card:hover {
+.app-home-stage.is-active .app-result-card {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 35ms stagger per card, capped at 280ms for card 9+ */
+.app-home-stage.is-active .app-result-card:nth-child(1) { transition-delay: 0ms; }
+.app-home-stage.is-active .app-result-card:nth-child(2) { transition-delay: 35ms; }
+.app-home-stage.is-active .app-result-card:nth-child(3) { transition-delay: 70ms; }
+.app-home-stage.is-active .app-result-card:nth-child(4) { transition-delay: 105ms; }
+.app-home-stage.is-active .app-result-card:nth-child(5) { transition-delay: 140ms; }
+.app-home-stage.is-active .app-result-card:nth-child(6) { transition-delay: 175ms; }
+.app-home-stage.is-active .app-result-card:nth-child(7) { transition-delay: 210ms; }
+.app-home-stage.is-active .app-result-card:nth-child(8) { transition-delay: 245ms; }
+.app-home-stage.is-active .app-result-card:nth-child(n+9) { transition-delay: 280ms; }
+
+.app-result-card:hover {
   box-shadow: var(--app-card-shadow-hover);
+  transform: translateY(-1px);
 }
 
-/* ---------- Program Card ---------- */
-
-.app-program-card {
-  cursor: pointer;
+/* Kind-specific left border (colored identifier strip) */
+.app-result-card--project {
   border-left: var(--stroke-thickest) solid var(--app-primary);
-  transition: box-shadow 0.2s;
 }
 
-.app-program-card:hover {
-  box-shadow: var(--app-card-shadow-hover);
-}
-
-/* ---------- Proposal Card ---------- */
-
-.app-proposal-card {
-  cursor: pointer;
+.app-result-card--program {
   border-left: var(--stroke-thickest) solid var(--app-accent-blue);
-  transition: box-shadow 0.2s;
 }
 
-.app-proposal-card:hover {
-  box-shadow: var(--app-card-shadow-hover);
+.app-result-card--proposal {
+  border-left: var(--stroke-thickest) solid var(--app-border-strong);
 }
 
-/* ---------- Card Internals ---------- */
-
-.app-card-header {
+/* Header row: title left, status pill right */
+.app-result-card__header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-.app-card-date {
-  color: var(--app-text-muted);
-  font-size: 0.9rem;
-}
-
-.app-card-context {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--app-text-muted);
-  font-size: 0.9rem;
-}
-
-.app-card-type-label {
-  font-size: 0.8rem;
-  color: var(--app-primary);
+.app-result-card__title {
+  font-size: var(--font-size-400);
+  line-height: 22px;
   font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* PM row: avatar initials + display name */
+.app-result-card__pm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-result-card__avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--app-primary-light);
+  color: var(--app-primary-active);
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-result-card__pm-name {
+  font-size: var(--font-size-200);
+  line-height: var(--line-height-200);
+  color: var(--app-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Thin horizontal divider between sections */
+.app-result-card__divider {
+  height: var(--stroke-thin);
+  background: var(--app-border);
+  flex-shrink: 0;
+}
+
+/* Description: 14px muted, 2-line clamp */
+.app-result-card__desc {
+  font-size: var(--font-size-300);
+  line-height: 20px;
+  color: var(--app-fg-muted);
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Footer row: single left-aligned overline "type · GDPR-acronym" */
+.app-result-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
   text-transform: uppercase;
+  color: var(--app-fg-muted);
+}
+
+.app-result-card__footer-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-result-card__footer-sep {
+  flex-shrink: 0;
+}
+
+/* ---------- Empty state (search query with no matches) ---------- */
+
+.app-home-empty {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 120px;
+  text-align: center;
+}
+
+.app-home-empty.is-shown {
+  display: flex;
+}
+
+/* Three ascending rotated squares (reuse foundation geometry, inline here
+   to avoid modifying app.css) */
+.app-home-empty__squares {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.app-home-empty__sq {
+  transform: rotate(45deg);
+}
+
+.app-home-empty__sq--sm {
+  width: 12px;
+  height: 12px;
+  background: var(--app-wash);
+}
+
+.app-home-empty__sq--md {
+  width: 14px;
+  height: 14px;
+  background: var(--app-tint);
+}
+
+.app-home-empty__sq--lg {
+  width: 16px;
+  height: 16px;
+  background: var(--app-tint-strong);
+}
+
+.app-home-empty__heading {
+  font-size: var(--font-size-500);
+  line-height: 24px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+  margin: 0;
+}
+
+.app-home-empty__desc {
+  font-size: var(--font-size-300);
+  line-height: 20px;
+  color: var(--app-fg-muted);
+  max-width: 420px;
+  margin: 0;
 }
 
 /* ---------- Responsive ---------- */
 
-@media (max-width: 768px) {
-  .app-card-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 900px) {
+  .app-home-field {
+    width: min(90vw, 660px);
   }
-
-  .app-search-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .app-search-toolbar .nofbiz__textinput {
-    width: 100%;
+  .app-home-bar {
+    padding: 0 16px 0 372px;
+    overflow-x: auto;
   }
 }
 
-@media (max-width: 480px) {
-  .app-card-header {
-    flex-direction: column;
-    align-items: flex-start;
+@media (max-width: 600px) {
+  .app-home-hero { top: 72px; }
+  .app-home-field { top: 180px; }
+  .app-home-bar {
+    padding: 0 12px 0 16px;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 60px;
   }
+  .app-home-stage.is-active .app-home-field {
+    left: 12px;
+    top: 12px;
+    width: calc(100vw - 24px);
+  }
+  .app-home-results { top: 60px; padding: 16px; }
 }

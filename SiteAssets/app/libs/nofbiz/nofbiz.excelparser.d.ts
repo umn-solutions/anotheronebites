@@ -1,3 +1,6 @@
+import * as hucre from 'hucre';
+export { hucre };
+
 interface ParseOptions {
     /** Auto-detect delimiter (default: true). When false, uses comma. */
     detectDelimiter?: boolean;

@@ -1,11 +1,18 @@
 import {
-  View, Container, TextInput, TextArea, DateInput, ComboBox, PeoplePicker, FormField, Button, Toast
+  View, Container, Text, TextInput, TextArea, DateInput, ComboBox, PeoplePicker, FormField, Button, Toast
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS } from '../../../utils/constants.js'
-import { createLabeledField, createFormSection, createFormRow, createMultiPersonPicker, createGroupMemberPicker, createMultiTargetValuePicker, comboValue, optionToUserIdentity } from '../../../utils/form-helpers.js'
+import {
+  createLabeledField, createFormSection, createFormRow,
+  createMultiPersonPicker, createGroupMemberPicker, createMultiTargetValuePicker,
+  comboValue, optionToUserIdentity
+} from '../../../utils/form-helpers.js'
 
 export function createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null }) {
-  // -- Charter fields --
+
+  // -------------------------------------------------------------------
+  // Charter fields
+  // -------------------------------------------------------------------
 
   const projectNameField = new FormField({ value: project.Title || '' })
   const projectManagerField = new FormField({ value: '' })
@@ -41,27 +48,46 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     pmPicker.resolveUser(project.ProjectManager.email)
   }
 
+  // Read-only expected end date with reason line (if umbrella program set, end date is derived)
+  const hasUmbrella = !!(project.LinkedPrograms || project.UmbrellaProgram)
+  const endDateInput = new DateInput(endDateField, { isDisabled: hasUmbrella, format: 'yyyy-mm-dd' })
+
+  const endDateField_ = hasUmbrella
+    ? new Container([
+        endDateInput,
+        new Text('Derived from the umbrella project — read only.', {
+          type: 'p',
+          class: 'app-field-reason'
+        })
+      ], { class: 'app-readonly-date-field' })
+    : endDateInput
+
   const charterSection = createFormSection('Charter', [
+    new Container([
+      new Text('* required', { type: 'span', class: 'app-section-meta' })
+    ], { class: 'app-section-header-meta' }),
     createFormRow([
       createLabeledField('Project Name', new TextInput(projectNameField), true),
       createLabeledField('Project Manager', pmPicker)
     ]),
     createLabeledField('Context', new TextInput(contextField)),
     createLabeledField('Objectives', new TextInput(objectivesField)),
+    createLabeledField('Scope / Out of Scope', new TextArea(scopeField, { placeholder: 'Describe what is in scope and out of scope' })),
     createFormRow([
       createLabeledField('Project Type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
       createLabeledField('GDPR Classification', new ComboBox(gdprField, GDPR_CLASSIFICATIONS, { allowFiltering: false }))
     ]),
     createFormRow([
       createLabeledField('Start Date', new DateInput(startDateField, { format: 'yyyy-mm-dd' })),
-      createLabeledField('Expected End Date', new DateInput(endDateField, { isDisabled: true, format: 'yyyy-mm-dd' }))
+      createLabeledField('Expected End Date', endDateField_)
     ]),
-    createLabeledField('Scope/Out of Scope', new TextArea(scopeField, { placeholder: 'Describe what is in scope and out of scope' })),
-    createLabeledField('Umbrella Program', new ComboBox(umbrellaField, umbrellaOptions, { allowFiltering: true, allowCreate: true })),
+    createLabeledField('Umbrella Project', new ComboBox(umbrellaField, umbrellaOptions, { allowFiltering: true, allowCreate: true })),
     techFieldsContainer
   ])
 
-  // -- Governance fields --
+  // -------------------------------------------------------------------
+  // Governance fields
+  // -------------------------------------------------------------------
 
   const businessLineField = new FormField({ value: project.BusinessLine || '' })
   const productField = new FormField({ value: project.Product || '' })
@@ -93,11 +119,14 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     ])
   ])
 
-  // -- Impact fields --
+  // -------------------------------------------------------------------
+  // Impact fields
+  // -------------------------------------------------------------------
 
   const targetTypeField = new FormField({ value: project.TargetType || '' })
   const targetValuesField = new FormField({ value: project.TargetValues || [] })
   const targetScopeField = new FormField({ value: project.TargetScope || '' })
+
   const impactSection = createFormSection('Project Impact', [
     createFormRow([
       createLabeledField('Target Type', new ComboBox(targetTypeField, targetTypes, { allowFiltering: false })),
@@ -106,7 +135,54 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     createMultiTargetValuePicker('Target Values', targetValuesField, targetValueTypes)
   ])
 
-  // -- Save Buttons --
+  // -------------------------------------------------------------------
+  // Dirty flag and sticky footer
+  // -------------------------------------------------------------------
+
+  let isCharteryDirty = false
+  let isGovernanceDirty = false
+  let isImpactDirty = false
+
+  const stickyFooter = new Container([], { class: 'app-sticky-save-bar app-sticky-save-bar--hidden' })
+
+  function updateStickyBar() {
+    const dirty = isCharteryDirty || isGovernanceDirty || isImpactDirty
+    if (!stickyFooter.isAlive) return
+    if (dirty) {
+      const dirtySections = [
+        isCharteryDirty ? 'Charter' : null,
+        isGovernanceDirty ? 'Governance' : null,
+        isImpactDirty ? 'Impact' : null,
+      ].filter(Boolean)
+      const labelText = dirtySections.length === 1
+        ? `Unsaved changes in `
+        : `${dirtySections.length} sections have unsaved changes`
+      const sectionLabel = dirtySections.length === 1 ? dirtySections[0] : ''
+      stickyFooter.children = [
+        new Text(labelText, { type: 'span', class: 'app-sticky-save-bar__label' }),
+        ...(sectionLabel ? [new Text(sectionLabel, { type: 'strong', class: 'app-sticky-save-bar__section' })] : []),
+        new Container([discardBtn, saveChangesBtn], { class: 'app-sticky-save-bar__actions' })
+      ]
+      stickyFooter.instance?.removeClass('app-sticky-save-bar--hidden')
+    } else {
+      stickyFooter.children = []
+      stickyFooter.instance?.addClass('app-sticky-save-bar--hidden')
+    }
+  }
+
+  // Mark charter dirty when any field changes
+  const charterFields = [projectNameField, contextField, objectivesField, projectTypeField, gdprField, scopeField, startDateField, endDateField, umbrellaField, techProjectField, techPhaseField, projectManagerField]
+  charterFields.forEach(f => f.subscribe(() => { isCharteryDirty = true; updateStickyBar() }))
+
+  const governanceFields = [businessLineField, productField, sponsorField, stakeholdersField, pmMembersField, statusField, pmScopeField]
+  governanceFields.forEach(f => f.subscribe(() => { isGovernanceDirty = true; updateStickyBar() }))
+
+  const impactFields = [targetTypeField, targetValuesField, targetScopeField]
+  impactFields.forEach(f => f.subscribe(() => { isImpactDirty = true; updateStickyBar() }))
+
+  // -------------------------------------------------------------------
+  // Allocation helper
+  // -------------------------------------------------------------------
 
   function deleteAllocationByEmail(email) {
     const record = allocations.find(a =>
@@ -117,34 +193,13 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       .catch(() => Toast.warning('Could not remove allocation for ' + email))
   }
 
-  function createSaveButton(label, buildData, afterSave) {
-    const btn = new Button(label, {
-      variant: 'primary',
-      onClickHandler: async () => {
-        btn.isLoading = true
-        const loading = Toast.loading('Saving...')
-        try {
-          await siteApi.list('Projects').updateItem(project.Id, buildData(), project['odata.etag'])
-          // MERGE returns no etag; re-fetch so the next save on this project uses a fresh one
-          const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
-          if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
-          loading.success('Saved')
-          if (afterSave) {
-            try { await afterSave() } catch { /* best-effort */ }
-          }
-        } catch {
-          loading.error('Failed to save')
-        } finally {
-          btn.isLoading = false
-        }
-      }
-    })
-    return btn
-  }
+  // -------------------------------------------------------------------
+  // Save functions
+  // -------------------------------------------------------------------
 
-  const saveCharterBtn = createSaveButton('Save Charter', () => {
+  async function saveCharter() {
     const umbrellaLabel = umbrellaField.value?.label || ''
-    return {
+    const data = {
       Title: projectNameField.value,
       ProjectManager: optionToUserIdentity(projectManagerField.value) || '',
       ProjectManagerEmail: optionToUserIdentity(projectManagerField.value)?.email || '',
@@ -160,47 +215,124 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       TechProject: comboValue(techProjectField.value),
       TechPhase: comboValue(techPhaseField.value),
     }
-  }, async () => {
+    await siteApi.list('Projects').updateItem(project.Id, data, project['odata.etag'])
+    const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+    if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
+
+    // Clean up old PM allocation when PM changes
     const newPmEmail = (optionToUserIdentity(projectManagerField.value)?.email || '').toLowerCase()
     const oldPmEmail = (project.ProjectManagerEmail || '').toLowerCase()
-    if (!oldPmEmail || newPmEmail === oldPmEmail) return
-    const storedMemberEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
-    if (storedMemberEmails.includes(oldPmEmail)) return
-    await deleteAllocationByEmail(oldPmEmail)
-  })
+    if (oldPmEmail && newPmEmail !== oldPmEmail) {
+      const storedMemberEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
+      if (!storedMemberEmails.includes(oldPmEmail)) {
+        await deleteAllocationByEmail(oldPmEmail)
+      }
+    }
 
-  const saveGovernanceBtn = createSaveButton('Save Governance', () => ({
-    BusinessLine: comboValue(businessLineField.value),
-    Product: productField.value,
-    Sponsor: optionToUserIdentity(sponsorField.value) || '',
-    Stakeholders: stakeholdersField.value,
-    PMMembers: pmMembersField.value,
-    PMMembersEmail: (pmMembersField.value || []).map(ui => ui.email).join(';'),
-    Status: comboValue(statusField.value),
-    PMScope: comboValue(pmScopeField.value),
-  }), async () => {
+    isCharteryDirty = false
+  }
+
+  async function saveGovernance() {
+    const data = {
+      BusinessLine: comboValue(businessLineField.value),
+      Product: productField.value,
+      Sponsor: optionToUserIdentity(sponsorField.value) || '',
+      Stakeholders: stakeholdersField.value,
+      PMMembers: pmMembersField.value,
+      PMMembersEmail: (pmMembersField.value || []).map(ui => ui.email).join(';'),
+      Status: comboValue(statusField.value),
+      PMScope: comboValue(pmScopeField.value),
+    }
+    await siteApi.list('Projects').updateItem(project.Id, data, project['odata.etag'])
+    const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+    if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
+
     const oldEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
     const newEmails = (pmMembersField.value || []).map(ui => ui.email.toLowerCase())
     const removed = oldEmails.filter(e => !newEmails.includes(e))
-    if (!removed.length) return
-    const currentPmEmail = (optionToUserIdentity(projectManagerField.value)?.email || project.ProjectManagerEmail || '').toLowerCase()
-    const toDelete = removed.filter(e => e !== currentPmEmail)
-    if (toDelete.length) await Promise.all(toDelete.map(deleteAllocationByEmail))
+    if (removed.length) {
+      const currentPmEmail = (optionToUserIdentity(projectManagerField.value)?.email || project.ProjectManagerEmail || '').toLowerCase()
+      const toDelete = removed.filter(e => e !== currentPmEmail)
+      if (toDelete.length) await Promise.all(toDelete.map(deleteAllocationByEmail))
+    }
+
+    isGovernanceDirty = false
+  }
+
+  async function saveImpact() {
+    const data = {
+      TargetType: comboValue(targetTypeField.value),
+      TargetValues: targetValuesField.value,
+      TargetScope: comboValue(targetScopeField.value),
+    }
+    await siteApi.list('Projects').updateItem(project.Id, data, project['odata.etag'])
+    const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+    if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
+    isImpactDirty = false
+  }
+
+  // -------------------------------------------------------------------
+  // Sticky footer buttons
+  // -------------------------------------------------------------------
+
+  const discardBtn = new Button('Discard', {
+    variant: 'secondary',
+    class: 'app-btn-secondary',
+    onClickHandler: () => {
+      // Reset fields to original project data
+      projectNameField.value = project.Title || ''
+      contextField.value = project.Context || ''
+      objectivesField.value = project.Objectives || ''
+      projectTypeField.value = project.ProjectType || ''
+      gdprField.value = project.GDPRClassification || ''
+      scopeField.value = project.Scope || ''
+      startDateField.value = project.StartDate || ''
+      endDateField.value = project.ExpectedEndDate || ''
+      umbrellaField.value = umbrellaOptions.find(o => o.value === project.LinkedPrograms) || ''
+      techProjectField.value = project.TechProject || ''
+      techPhaseField.value = project.TechPhase || ''
+      businessLineField.value = project.BusinessLine || ''
+      productField.value = project.Product || ''
+      stakeholdersField.value = project.Stakeholders || []
+      pmMembersField.value = project.PMMembers || []
+      statusField.value = project.Status || ''
+      pmScopeField.value = project.PMScope || ''
+      targetTypeField.value = project.TargetType || ''
+      targetValuesField.value = project.TargetValues || []
+      targetScopeField.value = project.TargetScope || ''
+      isCharteryDirty = false
+      isGovernanceDirty = false
+      isImpactDirty = false
+      updateStickyBar()
+    }
   })
 
-  const saveImpactBtn = createSaveButton('Save Impact', () => ({
-    TargetType: comboValue(targetTypeField.value),
-    TargetValues: targetValuesField.value,
-    TargetScope: comboValue(targetScopeField.value),
-  }))
+  const saveChangesBtn = new Button('Save changes', {
+    variant: 'primary',
+    class: 'app-btn-primary',
+    onClickHandler: async () => {
+      saveChangesBtn.isLoading = true
+      const loading = Toast.loading('Saving...')
+      try {
+        if (isCharteryDirty) await saveCharter()
+        if (isGovernanceDirty) await saveGovernance()
+        if (isImpactDirty) await saveImpact()
+        loading.success('Saved')
+        updateStickyBar()
+      } catch (err) {
+        console.error('[EditTab] save changes:', err)
+        loading.error('Failed to save')
+      } finally {
+        if (saveChangesBtn.isAlive) saveChangesBtn.isLoading = false
+      }
+    }
+  })
 
   return new View([
     charterSection,
-    new Container([saveCharterBtn], { class: 'app-charter-actions' }),
     governanceSection,
-    new Container([saveGovernanceBtn], { class: 'app-charter-actions' }),
     impactSection,
-    new Container([saveImpactBtn], { class: 'app-charter-actions' }),
     ...(deleteButton ? [new Container([deleteButton], { class: 'app-danger-zone' })] : []),
+    stickyFooter
   ])
 }

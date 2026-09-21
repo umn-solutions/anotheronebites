@@ -1,8 +1,9 @@
 import {
-  defineRoute, ViewSwitcher, View, Container, Text, Card, LinkButton, Button, SiteApi, StyleResource, SystemError
+  defineRoute, ViewSwitcher, View, Container, Text, Card, LinkButton, Button, SiteApi, SystemError, CurrentUser, Toast
 } from '../../libs/nofbiz/nofbiz.base.js'
-import { LIST_DEFINITIONS, LIST_SCOPES, APP_PERMISSIONS } from '../../utils/constants.js'
-import { getAppRoles } from '../../utils/app-state.js'
+import { exportSiteDataToExcel } from '../../utils/export-excel.js'
+import { LIST_DEFINITIONS, LIST_SCOPES } from '../../utils/constants.js'
+import { getPlatformMemberOptions } from '../../utils/members.js'
 import { createDefinitionsTab } from './utils/definitions-tab.js'
 import { createTeamTab } from './utils/team-tab.js'
 import { createScopesTab } from './utils/scopes-tab.js'
@@ -10,12 +11,9 @@ import { createScopesTab } from './utils/scopes-tab.js'
 export default defineRoute(async (config) => {
   config.setRouteTitle('Admin Area')
 
-  const roles = getAppRoles()
-  if (!roles.canAccess('adminArea', APP_PERMISSIONS)) {
+  if (new CurrentUser().accessLevel !== 'ADMIN') {
     throw new SystemError('AccessDenied', 'Admin access required', { breaksFlow: true })
   }
-
-  const routeStyles = new StyleResource('./route.css')
 
   const CATEGORY_MAP = [
     ['ProjectTypes', 'Project Types'],
@@ -30,10 +28,11 @@ export default defineRoute(async (config) => {
   const siteApi = new SiteApi()
   const listApi = siteApi.list(LIST_DEFINITIONS)
   const scopesListApi = siteApi.list(LIST_SCOPES)
-  const [initialItems, pmGroupMembers, scopeItems] = await Promise.all([
+  const [initialItems, pmGroupMembers, scopeItems, memberOptions] = await Promise.all([
     listApi.getItems(),
     siteApi.getGroupUsers('ProjectManagers'),
     scopesListApi.getItems(),
+    getPlatformMemberOptions(siteApi),
   ])
 
   const { tabGroup: definitionsTabGroup } = createDefinitionsTab({
@@ -43,7 +42,7 @@ export default defineRoute(async (config) => {
   })
 
   const teamView = await createTeamTab({ siteApi, pmGroupMembers })
-  const scopesView = createScopesTab({ listApi: scopesListApi, scopeItems })
+  const scopesView = createScopesTab({ listApi: scopesListApi, scopeItems, memberOptions })
 
   // ------------------------------------------------------------------
   // Sidebar Navigation
@@ -103,10 +102,31 @@ export default defineRoute(async (config) => {
 
   const layoutContainer = new Container([sidebar, contentArea], { class: 'app-dashboard-layout' })
 
+  const exportBtn = new Button('Export to Excel', {
+    variant: 'primary',
+    class: 'app-btn-primary',
+    onClickHandler: async () => {
+      exportBtn.isLoading = true
+      const loading = Toast.loading('Exporting site data...')
+      try {
+        await exportSiteDataToExcel(siteApi)
+        loading.success('Export ready')
+      } catch (err) {
+        console.error('[Admin export] failed', err)
+        loading.error('Export failed')
+      } finally {
+        exportBtn.isLoading = false
+      }
+    },
+  })
+
   const pageHeader = new Card([
     new Container([
       new Text('Admin Area', { type: 'h2' }),
-      new LinkButton('Back to Home', '/', { variant: 'secondary' }),
+      new Container([
+        new LinkButton('Back to Home', '/', { variant: 'secondary' }),
+        exportBtn,
+      ], { class: 'app-detail-header-actions' }),
     ], { class: 'app-detail-header' }),
   ], { class: 'app-detail-header-card' })
 

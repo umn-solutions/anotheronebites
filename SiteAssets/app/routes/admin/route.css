@@ -1,4 +1,13 @@
 /* Admin Route */
+
+/* Header action group: Back to Home + Export button sit side-by-side */
+.app-detail-header-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+}
+
+
 .admin-route {
 	padding: calc(var(--app-spacing) * 3);
 	display: flex;

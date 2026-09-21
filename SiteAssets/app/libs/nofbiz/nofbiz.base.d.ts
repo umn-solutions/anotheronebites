@@ -1,13 +1,18 @@
 import * as lodashEs from 'lodash-es';
 export { lodashEs as __lodash };
 export { z as __zod } from 'zod';
-import dayjs from 'dayjs/esm/index.js';
 export { default as __dayjs } from 'dayjs/esm/index.js';
 export { default as __fuse } from 'fuse.js';
 import { v4 } from 'uuid';
 
-/** Accepted dataset formats: raw strings or structured option objects. */
-type ComboBoxDataset = string[] | ComboBoxOptionProps[];
+/**
+ * Shared type definitions for ComboBox option objects.
+ *
+ * Extracted from the DOM layer so that core utilities (FormField, fieldValue)
+ * can reference `ComboBoxOptionProps` without importing from the component
+ * module -- preventing tree-shakers from pulling the entire ComboBox component
+ * into bundles that only use FormField.
+ */
 /** Represents an option of a ComboBox dataset. */
 interface ComboBoxOptionProps {
     /** Text to be displayed */
@@ -17,91 +22,6 @@ interface ComboBoxOptionProps {
     /** Indicates whether the option is selectable */
     disabled?: boolean;
     checked?: boolean;
-}
-interface ComboBoxProps extends FormControlProps {
-    /** Allows the user to select multiple options. @default false */
-    allowMultiple?: boolean;
-    /** Placeholder text for the input field. @default "Select..." */
-    placeholder?: string;
-    /** If filtering is enabled, this is used for the clear button's text. @default "Clear..." */
-    clearText?: string;
-    /** Indicates if dataset is filterable. @default true */
-    allowFiltering?: boolean;
-    /** Callback that receives the current selection each time an option is toggled. */
-    onSelectHandler?: (selection: ComboBoxOptionProps | ComboBoxOptionProps[]) => void;
-    /** When true the full options array is returned (with checked flags), not only checked items. @default false */
-    returnFullDataset?: boolean;
-    /** When true, allows the user to create new options by typing text that doesn't match existing options. @default false */
-    allowCreate?: boolean;
-    /**
-     * When provided, this replaces the default Fuse.js filter.
-     * @param search The current string input from the searchbar.
-     * @returns Filtered array of options.
-     */
-    filteringFunction?: (search: string) => ComboBoxOptionProps[];
-}
-declare class ComboBox extends FormControl<ComboBoxOptionProps | ComboBoxOptionProps[]> {
-    protected _dataset: ComboBoxOptionProps[];
-    protected _filteredDataset: ComboBoxOptionProps[];
-    private _allowMultiple;
-    private _placeholder;
-    private _onSelectHandler?;
-    private _clearText;
-    private _isDropdownOpen;
-    private _allowFiltering;
-    private _filterFn;
-    private _returnFullDataset;
-    private _explicitlyDisabled;
-    private _fuseInstance;
-    private _allowCreate;
-    private _focusedIndex;
-    private _pendingTimeouts;
-    constructor(field: FormField<ComboBoxOptionProps | ComboBoxOptionProps[]>, dataset: ComboBoxDataset, props?: ComboBoxProps);
-    private _normalizeDataset;
-    private _getFuseInstance;
-    private _invalidateFuseCache;
-    private _defaultFilteringFunction;
-    private _disableOnEmptyDataset;
-    private _syncDatasetFromField;
-    private _trackTimeout;
-    private _clearAllTimeouts;
-    private _createSearchBar;
-    private _createDropdown;
-    private _createOption;
-    private _createOptionsList;
-    private _createCreateOption;
-    protected _refreshDropdownList(): void;
-    private _updateCreateOption;
-    private _refreshChevron;
-    private _displaySelection;
-    private _selectOption;
-    private _createNewOption;
-    private _afterSelection;
-    private _updateOptionSelectedStates;
-    protected _onSelectHandlerProxy(): void;
-    private _onResetFilteredDataSearch;
-    private _openDropdown;
-    private _closeDropdown;
-    private _bindKeyboardNavigation;
-    private _moveFocus;
-    private _selectFocusedOption;
-    private _bindDropdownMousedownHandler;
-    private _bindOptionClickHandlers;
-    private _bindSearchBarEventHandlers;
-    protected _onSearchEventListeners(): void;
-    private _bindBlurHandler;
-    private _bindClearIconHandler;
-    private _bindCreateOptionHandler;
-    private _bindClearButtonHandler;
-    protected _applyEventListeners(): void;
-    clearSelection(): void;
-    get modifierClasses(): string;
-    toString(): string;
-    get dataset(): ComboBoxOptionProps[];
-    set dataset(data: ComboBoxDataset);
-    set filteringFunction(callback: (search: string) => ComboBoxOptionProps[]);
-    render(): void;
-    remove(): void;
 }
 
 type FormFieldType = string | number | boolean | ComboBoxOptionProps | ComboBoxOptionProps[];
@@ -120,7 +40,7 @@ declare class FormField<T extends FormFieldType> {
     private _wasTouched;
     private _isDisposed;
     constructor(props?: FormFieldProps<T>);
-    [Symbol.toStringTag](): string;
+    get [Symbol.toStringTag](): string;
     [Symbol.toPrimitive](): string | T;
     toString(): string | T;
     validate(): boolean | null;
@@ -128,6 +48,15 @@ declare class FormField<T extends FormFieldType> {
     focusOnInput(): void;
     set value(data: T);
     set inputSelector(selector: string);
+    /**
+     * Returns the stored value.
+     *
+     * WARNING -- raw reference: for object/array values this returns the internal
+     * reference directly (no clone). Mutating the returned value (e.g. `.push()`,
+     * `[0].label = ...`) bypasses the setter, skipping `_wasTouched`, `cloneDeep`,
+     * and subscriber notification. If you need to update the value, assign through
+     * the setter: `field.value = newValue`.
+     */
     get value(): T;
     get wasTouched(): boolean;
     get isValid(): boolean;
@@ -144,10 +73,11 @@ declare class FormField<T extends FormFieldType> {
  */
 interface HTMDElementInterface {
     /**
-     * Discriminator to identify classes that implement this interface
+     * Discriminator to identify classes that implement this interface.
+     * Declared readonly to prevent external mutation or spoofing.
      * @see isHTMDComponent
      */
-    isHTMD: true;
+    readonly isHTMD: true;
     /**
      * A string representation used to render the actual element into the DOM
      */
@@ -167,6 +97,10 @@ interface HTMDElementInterface {
      */
     containerSelector?: string;
 }
+/**
+ * Uses the HTMDElementInterface discriminator to check if a given object implements the HTMDInterface
+ */
+declare function isHTMDComponent(arg: unknown): any;
 
 /**
  * A node represents a type that can be rendered to the DOM directly or via the HTMDElementInterface.render() method.
@@ -183,6 +117,16 @@ type HTMDSingleNode = HTMDElementInterface | string | number;
  * //whitout the function , the actual value of user.name is passed, instead of a ref to user.name
  */
 type HTMDNode = HTMDSingleNode | (() => HTMDNode) | Array<HTMDNode | (() => HTMDNode)>;
+/**
+ * Utility function to check if a given argument is a valid HTMDNode.
+ *
+ * WARNING -- SIDE EFFECT ON FUNCTION NODES: when `arg` is a function, this
+ * guard calls `arg()` to validate the return type. Any factory function with
+ * side effects (DOM mutation, state writes, network calls) will execute those
+ * effects as part of a type check. Only pass pure, idempotent factory functions
+ * as HTMDNode values; never pass a function that should run once.
+ */
+declare function isHTMDNode(arg: unknown): boolean;
 
 /**
  * Universally Unique Identifier - Use this type just to provide more clarity. UUID should never be an empty string
@@ -210,7 +154,8 @@ interface ChildrenOptions {
  * unique IDs, BEM-based class names, event management, and child support.
  */
 declare abstract class HTMDElement implements HTMDElementInterface {
-    isHTMD: true;
+    /** Discriminator; readonly prevents external mutation or spoofing. */
+    readonly isHTMD: true;
     private _id;
     private _class;
     /** Contains the lowercase class name. Used in to generate default class names and to classify the element type*/
@@ -227,6 +172,14 @@ declare abstract class HTMDElement implements HTMDElementInterface {
     get [Symbol.toStringTag](): string;
     private _eventsMap;
     /**
+     * Per-event managed-listener registry used by `_addManagedListener`.
+     * Each entry stores the exact handler bound to the DOM so the prior
+     * binding can be removed precisely before re-applying after a `_refresh`.
+     *
+     * Key format: `"event"` for root listeners, `"event|selector"` for delegated.
+     */
+    private _managedListeners;
+    /**
      * Registers an event handler for a given event type on this element.
      * Replaces any previously assigned handler for the same event.
      * @param eventName The DOM event type to listen for (e.g., 'click').
@@ -239,12 +192,76 @@ declare abstract class HTMDElement implements HTMDElementInterface {
     protected _applyEventListeners(): void;
     /**
      * Removes specified event handlers, or all if none are specified.
+     * Deletes from _eventsMap AND removes the DOM binding.
+     * Use when permanently forgetting a handler (it will not be re-applied after _refresh).
      * @param eventsList An array of event types to clear (or a single type).
      */
     clearEventListenersRecord<K extends keyof HTMLElementEventMap>(eventsList?: K | K[]): void;
+    /**
+     * Wipes both _eventsMap records and all DOM bindings (subtree sweep).
+     * Full teardown -- equivalent to clearEventListenersRecord(all) + removeAllEventListeners.
+     */
     clearAllEventListenersAndRecords(): void;
+    /**
+     * Calls .off() on the DOM for specified events (or all tracked ones in _eventsMap),
+     * but leaves _eventsMap entries intact.
+     * DOM bindings will be re-applied on the next _applyEventListeners() call (e.g. after _refresh).
+     * Use for temporary DOM detachment without forgetting handler registrations.
+     */
     removeEventListeners<K extends keyof HTMLElementEventMap>(eventsList?: K | K[]): void;
+    /**
+     * Calls .off() on this element and every descendant (jQuery subtree sweep).
+     * The canonical full teardown used by remove(). Does NOT clear _eventsMap;
+     * records survive so the instance can be re-rendered if needed.
+     */
     removeAllEventListeners(): void;
+    /**
+     * Registers a namespaced, idempotent jQuery event listener on this element's
+     * DOM instance. The reference pattern is DateRangeInput's `.off(ns).on(ns, ...)`.
+     *
+     * Behavior:
+     * - Uses a stable jQuery namespace derived from the element's id and the key
+     *   `"event"` (root) or `"event|selector"` (delegated).
+     * - Removes the prior binding for that key before attaching the new one, so
+     *   calling this method on every `_refresh()` never accumulates duplicates.
+     * - Stores the handler in `_managedListeners` so `_applyManagedListeners()`
+     *   can replay them after each `_refresh()`.
+     *
+     * Per-component conversion (TextInput, DateInput, etc.) is scheduled for a
+     * later wave. This helper and `_applyManagedListeners` are built here so
+     * future waves have the infrastructure to call.
+     *
+     * @param event  Native DOM event name (e.g. `'input'`, `'change'`).
+     * @param handler  jQuery event handler. Receives the full jQuery event object.
+     * @param selector  Optional CSS selector for delegated (event-bubbling) binding.
+     *
+     * @example
+     * // Direct listener (on the root element)
+     * this._addManagedListener('click', (e) => this._handleClick(e));
+     *
+     * // Delegated listener (fires only when a matching descendant is the target)
+     * this._addManagedListener('click', (e) => this._handleOptionClick(e), '.option');
+     */
+    /**
+     * Converts an arbitrary CSS selector string into a short alphanumeric hash
+     * safe for use as a jQuery event-namespace token. jQuery requires namespace
+     * segments to be plain `[\w-]` tokens; raw selectors contain dots, colons,
+     * and parentheses that break jQuery's namespace regex.
+     */
+    private _hashSelector;
+    /**
+     * Builds a stable, jQuery-safe event namespace for a given (event, selector)
+     * pair on this element instance. Used by both `_addManagedListener` and
+     * `_applyManagedListeners` so `.on(ns)` and `.off(ns)` always match.
+     */
+    private _managedNs;
+    protected _addManagedListener(event: string, handler: (e: JQuery.TriggeredEvent) => void, selector?: string): void;
+    /**
+     * Replays all managed listeners recorded via `_addManagedListener` onto
+     * the freshly-replaced DOM node after a `_refresh()`.
+     * Called automatically by `_refresh()`; subclasses do not need to call it.
+     */
+    private _applyManagedListeners;
     /**
      * @returns the HTML string representing this element.
      */
@@ -262,6 +279,13 @@ declare abstract class HTMDElement implements HTMDElementInterface {
     render(shouldRenderChildren?: boolean, childrenOptions?: ChildrenOptions): void;
     /**
      * Replaces the DOM instance of this element with a re-rendered version.
+     *
+     * Child teardown: previous _children are torn down via _removeChildren() before
+     * the DOM node is replaced. This ensures that any child-held side-state
+     * (FormField subscriptions, timers, nested event listeners) is released on
+     * every refresh, not just on remove(). Both paths (refresh and remove) now
+     * share the same _removeChildren teardown contract.
+     *
      * @param shouldRenderChildren Whether to render child nodes.
      */
     private _refresh;
@@ -347,12 +371,51 @@ declare abstract class FormControl<T extends FormFieldType> extends HTMDElement 
     protected _isDisabled: boolean;
     protected _isLoading: boolean;
     title: string;
+    /**
+     * True when this FormControl created the FormField internally (from a raw value).
+     * False when the caller passed an existing FormField -- the caller owns disposal.
+     * Only the owned field is disposed in remove().
+     */
+    private _ownsFormField;
     constructor(fieldOrValue: T | FormField<T>, props?: FormControlProps);
+    /**
+     * Stores only the validation-state CSS modifier currently applied to the instance.
+     * Updated in `_validate()` via direct addClass/removeClass on the DOM -- the class
+     * setter is never read back to avoid the class-string doubling bug (each round-trip
+     * through the setter prepends `nofbiz__<name>` and `form-control` again).
+     */
+    private _validationModifier;
     private get _validationClass();
+    /**
+     * Runs validation and applies the appropriate CSS modifier to the live DOM node.
+     *
+     * Canonical rule: validation is unconditional here. Touch-state (`wasTouched`)
+     * only gates which modifier class is displayed (see `_validationClass`), not
+     * whether `_value.validate()` is called. Per-subclass `wasTouched` guards
+     * (e.g. the old NumberInput pattern) are removed in later waves.
+     *
+     * Class-string stability: the modifier is tracked in `_validationModifier` and
+     * applied exclusively via `instance.addClass/removeClass`, never through the
+     * `class` setter. Reading the setter back and reassigning caused prefix doubling
+     * on every validation round-trip.
+     */
     protected _validate(): void;
     toggleDisabledState(): void;
     toggleLoadingState(): void;
     get modifierClasses(): string;
+    /**
+     * Removes this FormControl from the DOM and disposes its FormField if owned.
+     *
+     * Ownership rule: the FormField is disposed only when this FormControl
+     * created it internally from a raw value (`_ownsFormField === true`).
+     * When the caller passed an existing FormField, disposal is the caller's
+     * responsibility and this override leaves it untouched.
+     *
+     * Note: disposal happens regardless of `isAlive` so that a FormControl
+     * constructed but never rendered still releases its subscribers when
+     * explicitly removed.
+     */
+    remove(): void;
     set class(str: string);
     get class(): string;
     get isValid(): boolean;
@@ -364,12 +427,54 @@ declare abstract class FormControl<T extends FormFieldType> extends HTMDElement 
     get isLoading(): boolean;
 }
 
+interface DebouncedInputProps extends FormControlProps {
+    /** Debounce delay in milliseconds for syncing value on keystroke. @default 300 */
+    debounceMs?: number;
+}
+/**
+ * Abstract base for text-like inputs (TextInput, TextArea, NumberInput) that share
+ * debounced value syncing on `input` and immediate sync on `blur`.
+ *
+ * Subclasses implement `_syncValue()` to read the DOM value and write to `this._value`.
+ * Validation is unconditional in `_syncValue()` -- FormControl._validate() gates the
+ * display modifier on wasTouched, not the call itself.
+ */
+declare abstract class DebouncedInput<T extends FormFieldType> extends FormControl<T> {
+    private _debouncedSync;
+    constructor(fieldOrValue: T | FormField<T>, props?: DebouncedInputProps);
+    /**
+     * Reads the current DOM value and writes it to `this._value`, then calls `this._validate()`.
+     * Implemented by each subclass.
+     */
+    protected abstract _syncValue(): void;
+    /**
+     * Optional hook called on every `input` event, alongside the debounced sync.
+     * Subclasses may override to add extra per-keystroke behavior (e.g. auto-resize).
+     * The base implementation is a no-op.
+     */
+    protected _onInput(): void;
+    protected _applyEventListeners(): void;
+    remove(): void;
+}
+
 type ContainerTags = 'div' | 'span' | 'header' | 'main' | 'footer' | 'section' | 'article' | 'nav';
 interface ContainerProps extends HTMDElementProps {
     as?: ContainerTags;
     selectableItems?: boolean;
-    onClickHandler: (e: MouseEvent) => void;
+    onClickHandler?: (e: MouseEvent) => void;
 }
+/**
+ * Structural wrapper component. Use Container when you need a generic block/inline
+ * wrapper with no semantic meaning beyond layout (div, span, header, etc.).
+ *
+ * Boundary notes:
+ *   - Container  -- structural wrapper; no variant styling, no semantic box meaning.
+ *   - Card        -- extends Container; adds a `variant` prop ('primary'|'secondary')
+ *                    for semantic content-box styling. Use Card for content panels.
+ *   - Fragment    -- DOM-less multi-child holder; renders children directly into the
+ *                    parent node without injecting a wrapping element. Use Fragment
+ *                    when you need to group children but cannot afford an extra DOM node.
+ */
 declare class Container extends HTMDElement {
     protected _tag: ContainerTags;
     selectableItems: boolean;
@@ -379,7 +484,7 @@ declare class Container extends HTMDElement {
     set onClickHandler(callback: (e: MouseEvent) => void);
 }
 
-interface AccordionItemProps extends ContainerProps {
+interface AccordionItemProps extends Omit<ContainerProps, 'as' | 'selectableItems' | 'onClickHandler'> {
     isInitialOpen?: boolean;
     class?: string;
     onOpenCallback?: () => void;
@@ -388,7 +493,14 @@ interface AccordionItemProps extends ContainerProps {
 declare class AccordionItem extends Container {
     private _isOpen;
     private _header;
-    onOpenCallback: () => void;
+    /**
+     * Callback invoked when this item opens.
+     *
+     * Not public: AccordionGroup wires single-open coordination through
+     * `_setOpenCallback()`. Direct external writes would silently break group
+     * state, so mutation is gated behind the internal setter below.
+     */
+    private _onOpenCallback;
     onCloseCallback: () => void;
     constructor(header: string, children: HTMDNode, props?: AccordionItemProps);
     protected get _modifierClasses(): string;
@@ -403,11 +515,25 @@ declare class AccordionItem extends Container {
     open(): void;
     toggle(): void;
     get isOpen(): boolean;
+    /**
+     * Internal-use setter for the open callback.
+     * AccordionGroup calls this to inject its single-open coordination logic
+     * after construction, replacing any user-supplied onOpenCallback.
+     * The leading underscore signals that this is not part of the public API,
+     * but the method must stay accessible to AccordionGroup (cross-class), so it
+     * cannot be private/protected -- hence the naming-convention exception.
+     */
+    _setOpenCallback(cb: () => void): void;
     protected _applyEventListeners(): void;
 }
 
 interface AccordionGroupProps extends ContainerProps {
     allowMultipleOpen?: boolean;
+    /**
+     * Zero-based index of the AccordionItem that should be open on construction.
+     * Ignored if out of range. When `allowMultipleOpen` is false (default), opening
+     * this item will close all others via the standard single-open coordination.
+     */
     openIndex?: number;
 }
 declare class AccordionGroup extends Container {
@@ -415,7 +541,6 @@ declare class AccordionGroup extends Container {
     allowMultipleOpen: boolean;
     constructor(children: AccordionItem[], props?: AccordionGroupProps);
     protected _closeAllOtherItems(index: number): void;
-    protected _applyEventListeners(): void;
 }
 
 type CardVariants = 'primary' | 'secondary';
@@ -423,6 +548,12 @@ interface CardProps extends ContainerProps {
     /** Defines the element styling variant. Defaults to "primary" */
     variant?: CardVariants;
 }
+/**
+ * Semantic content-box component. Extends Container with a `variant` prop
+ * ('primary' | 'secondary') for styled panel rendering.
+ * Use Card for content panels; use Container for structural/layout-only wrappers.
+ * See Container for the full Container/Card/Fragment boundary description.
+ */
 declare class Card extends Container {
     variant: CardVariants;
     constructor(children: HTMDNode, props?: CardProps);
@@ -460,9 +591,14 @@ declare class Fragment implements HTMDElementInterface {
 interface ModalProps extends ContainerProps {
     /** Indicates whether to blur and darken the parent element */
     backdrop?: boolean;
-    /** Indicates if Modal should be closed when user clicks outside it's bounding box. @default true*/
+    /** Indicates if Modal should be closed when user clicks outside it's bounding box. @default true */
     closeOnFocusLoss?: boolean;
-    /** Function that is called when the modal closes */
+    /**
+     * Called when the modal closes, regardless of the close path (button, Esc, close-X, backdrop /
+     * focus-loss). Guaranteed to fire exactly once per close event. Package 03 (Router navigation
+     * guard) depends on this contract: it assigns a handler here so it can resolve its guard promise
+     * on ANY dismissal path without polling.
+     */
     onCloseHandler?: () => void;
     /** Function that is called when the modal opens */
     onOpenHandler?: () => void;
@@ -477,7 +613,19 @@ declare class Modal extends Container {
     render(): void;
     open(): void;
     close(): void;
+    /**
+     * Override remove() to clean up disable-scroll + backdrop + the blur timer so a
+     * route teardown while the modal is open does not leave the page scroll-locked.
+     */
+    remove(): void;
+    private _clearBlurTimeout;
     private _onFocusLossEventListener;
+    /**
+     * Escape-to-close (B9): keyboard dismissal so the modal (and BreakingErrorDialog, which
+     * is rendered into a Modal) is dismissible without a pointer. Applied unconditionally --
+     * subclasses that override this method (SidePanel) call super() first and can re-bind.
+     */
+    private _onEscapeKeyListener;
     protected _applyEventListeners(): void;
     protected get _modifierClasses(): string;
     set onCloseHandler(callback: () => void);
@@ -508,11 +656,18 @@ declare class SidePanel extends Modal {
 
 interface ViewProps extends HTMDElementProps {
     onRefreshHandler?: () => void;
+    /** Controls whether this View shows itself immediately after render().
+     * Only relevant when the View is used standalone (outside a ViewSwitcher).
+     * ViewSwitcher always passes `show=false` to render() and controls visibility
+     * itself, so this prop has no effect in that context. */
     showOnRender?: boolean;
 }
 declare class View extends HTMDElement {
     protected _onRefresh: (() => void) | (() => Promise<void>);
     showOnRender: boolean;
+    /** True while a hide animation is in progress. Guards against starting a
+     * show() on a new view before the previous view's hide has resolved. */
+    private _hiding;
     constructor(children: HTMDNode, props: ViewProps);
     toString(): string;
     /**
@@ -520,10 +675,23 @@ declare class View extends HTMDElement {
      * @returns
      */
     render(show?: boolean): void;
-    hide(duration?: number, onCompleteCallback?: () => void): void;
+    /**
+     * Hides this view with a fade animation.
+     * Returns a Promise that resolves when the animation completes so callers
+     * can sequence hide -> show correctly (avoids rapid-switch races).
+     * Listener removal is NOT performed here -- use pointer-events:none style
+     * instead so listeners remain intact if the view is later shown again.
+     */
+    hide(duration?: number, onCompleteCallback?: () => void): Promise<void>;
+    /**
+     * Shows this view after running the optional async onRefreshHandler.
+     * Returns a Promise that resolves when the fade-in animation completes.
+     */
     show(duration?: number, onCompleteCallback?: () => void): Promise<void>;
     toggleVisibility(duration?: number, onCompleteCallback?: () => void): void;
     get isVisible(): boolean | undefined;
+    /** Whether a hide animation is currently in progress. */
+    get isHiding(): boolean;
     set children(children: HTMDNode);
     get children(): HTMDNode | undefined;
 }
@@ -534,8 +702,12 @@ interface ViewSwitcherProps<K extends string> extends FragmentProps {
     onRefreshHandler?: (viewName: K, viewIndex: number, view: View) => void;
 }
 /**
- * A ViewSwitcher is mean to control a set of views, like a sub router.
- * Handles content change and can be used for carousels or forms with multiple screens
+ * A ViewSwitcher controls a set of views, like a sub-router.
+ * Handles content change and can be used for carousels or forms with multiple screens.
+ *
+ * Architecture note: ViewSwitcher is also used internally by TabGroup as its
+ * view-switching engine. TabGroup's nextTab()/previousTab() delegate to
+ * ViewSwitcher.next()/previous() so wrap logic lives here (single source of truth).
  */
 declare class ViewSwitcher<K extends string> extends Fragment {
     private _currentChild;
@@ -543,14 +715,35 @@ declare class ViewSwitcher<K extends string> extends Fragment {
     protected _viewKeys: Record<K, number>;
     protected _children: View[];
     protected _onRefreshHandler: (viewName: K, viewIndex: number, view: View) => void;
+    /** True while a setView transition (hide + show) is in progress.
+     * Rapid-switch guard: a second setView call while this is true is ignored
+     * to prevent overlapping fade animations leaving a permanently hidden view. */
+    private _switching;
     constructor(children?: [K, View][], props?: ViewSwitcherProps<K>);
     get [Symbol.toStringTag](): string;
     protected _renderChild(child: View): void;
     render(): void;
     addViews(...views: [K, View][]): void;
+    /**
+     * Switch to the named view.
+     *
+     * The transition is sequenced: the outgoing view's hide animation completes
+     * before the incoming view's show() starts. A guard flag prevents overlapping
+     * transitions from rapid calls (e.g. quick tab clicks). A second call while a
+     * transition is in progress is silently dropped -- the user must wait for the
+     * animation to finish before switching again.
+     */
     setView(viewName: K): void;
     setViewByIndex(n: number): void;
+    /**
+     * Navigate to the next view (wraps around).
+     * Source of truth for wrap logic -- TabGroup.nextTab() delegates here.
+     */
     next: () => void;
+    /**
+     * Navigate to the previous view (wraps around).
+     * Source of truth for wrap logic -- TabGroup.previousTab() delegates here.
+     */
     previous: () => void;
     get currentChild(): View;
     get currentViewName(): K;
@@ -564,6 +757,22 @@ interface DialogProps extends ModalProps {
     footer: HTMDNode;
     variant: DialogVariants;
 }
+/**
+ * Dialog -- general-purpose confirmation / alert modal.
+ *
+ * Layer contract (Q1):
+ *   Dialog         -- general-purpose (user confirmations, navigation guards, alerts).
+ *   BreakingErrorDialog -- wraps Dialog; reserved for unrecoverable SystemError display.
+ *   Router (pkg 03) uses Dialog for navigation-guard prompts; it depends on the
+ *   onCloseHandler firing on ALL dismiss paths (button, Esc, backdrop) so the guard
+ *   promise can always settle.
+ *
+ * onClose contract (required by package 03):
+ *   Pass `onCloseHandler` in props (inherited from ModalProps). It is guaranteed to
+ *   fire exactly once on every close path -- button, Esc key, close-X, or backdrop /
+ *   focus-loss. The Router assigns this handler to resolve/reject its navigation-guard
+ *   promise so the guard never hangs.
+ */
 declare class Dialog extends Modal {
     protected _variant: DialogVariants;
     constructor(props: DialogProps);
@@ -572,13 +781,33 @@ declare class Dialog extends Modal {
 interface LoaderProps extends HTMDElementProps {
     animation?: 'pulse';
 }
+/**
+ * Loader -- animated activity indicator.
+ *
+ * Note on `children` (W6): the constructor accepts `children` as part of the
+ * HTMDElement API but the component does not render them -- the element is a
+ * single self-contained div whose visual content comes from CSS animation.
+ * Pass `[]` or `undefined`; any provided children are silently ignored.
+ */
 declare class Loader extends HTMDElement {
     animation?: 'pulse';
     constructor(children: HTMDNode, props: LoaderProps);
     toString(): string;
+    /**
+     * Activates the loader. If the element has not been rendered yet and a
+     * containerSelector is configured, it renders first.
+     *
+     * Q5 fix: guard against missing containerSelector so we don't silently
+     * append to $('') when the element is not alive.
+     */
     enable(): void;
     disable(): void;
     toggleLoader(): void;
+    /**
+     * B10 fix: override remove() to call disable() first so the CSS exit transition
+     * runs before the element is torn down.
+     */
+    remove(): void;
 }
 
 interface ToastOptions {
@@ -628,12 +857,43 @@ interface ToastPromiseMessages<T> {
 }
 declare class Toast {
     private static readonly _defaults;
+    /**
+     * Tracks all active loading controllers so Toast.dismissAll() can clean them up.
+     * Each entry is removed when the controller resolves (success/error/dismiss).
+     */
+    private static readonly _activeLoaders;
+    /**
+     * W2 fix: wrap the raw Toastify return value in a defensive shell.
+     * If the vendor API ever changes and `hideToast` is absent, we log rather
+     * than throwing at the call site with an unhelpful "is not a function" message.
+     */
     private static _show;
     static success(message: string, options?: ToastOptions): void;
     static error(message: string, options?: ToastOptions): void;
     static info(message: string, options?: ToastOptions): void;
     static warning(message: string, options?: ToastOptions): void;
+    /**
+     * Shows a persistent loading spinner toast and returns a controller to
+     * resolve it as success, error, or dismiss it.
+     *
+     * W1 fix -- defensive max-duration:
+     *   If the controller is never resolved (exception bypasses finally, route
+     *   navigates away), a fallback timer auto-dismisses the spinner after
+     *   LOADING_MAX_DURATION_MS milliseconds.
+     *
+     * Route cleanup:
+     *   The Router (package 03) should call Toast.dismissAll() on every navigation
+     *   to clean up any orphaned loading toasts. The auto-dismiss timer here is a
+     *   safety net for cases where that call is missed.
+     */
     static loading(message: string, options?: ToastOptions): ToastLoadingController;
+    /**
+     * Dismisses all currently active loading toasts.
+     *
+     * Called by the Router on every navigation so orphaned loading spinners
+     * do not bleed across routes. Package 03 is responsible for the wiring.
+     */
+    static dismissAll(): void;
     static promise<T>(promise: Promise<T>, messages: ToastPromiseMessages<T>, options?: ToastOptions): Promise<T>;
 }
 
@@ -648,16 +908,137 @@ interface ButtonProps extends FormControlProps {
     squared?: boolean;
     /** */
     onClickHandler: (e: MouseEvent) => void;
+    /**
+     * Throttles the click callback to prevent accidental double-clicks / rapid repeat clicks.
+     * `true` -> enabled at the default 300ms window. A number -> enabled with that window in ms.
+     * `false` -> disabled (raw callback). Leading-edge: the first click fires immediately,
+     * further clicks within the window are ignored. The window persists across re-renders.
+     * @default true
+     */
+    throttle?: boolean | number;
 }
 declare class Button extends FormControl<string> {
     type: ButtonProps['type'];
     variant: ButtonProps['variant'];
     isOutlined: boolean;
     isSquared: boolean;
+    private _clickThrottleMs;
+    private _throttledClick;
     constructor(children: HTMDNode, props: ButtonProps);
     get modifierClasses(): string;
     toString(): string;
     set onClickHandler(callback: (e: MouseEvent) => void);
+    remove(): void;
+}
+
+/** Accepted dataset formats: raw strings or structured option objects. */
+type ComboBoxDataset = string[] | ComboBoxOptionProps[];
+interface ComboBoxProps extends FormControlProps {
+    /** Allows the user to select multiple options. @default false */
+    allowMultiple?: boolean;
+    /** Placeholder text for the input field. @default "Select..." */
+    placeholder?: string;
+    /** If filtering is enabled, this is used for the clear button's text. @default "Clear..." */
+    clearText?: string;
+    /** Indicates if dataset is filterable. @default true */
+    allowFiltering?: boolean;
+    /** Callback that receives the current selection each time an option is toggled. */
+    onSelectHandler?: (selection: ComboBoxOptionProps | ComboBoxOptionProps[]) => void;
+    /** When true the full options array is returned (with checked flags), not only checked items. @default false */
+    returnFullDataset?: boolean;
+    /** When true, allows the user to create new options by typing text that doesn't match existing options. @default false */
+    allowCreate?: boolean;
+    /**
+     * When provided, this replaces the default Fuse.js filter. May return a Promise for async filtering.
+     * @param search The current string input from the searchbar.
+     * @returns Filtered array of options, or a Promise resolving to one.
+     */
+    filteringFunction?: (search: string) => ComboBoxOptionProps[] | Promise<ComboBoxOptionProps[]>;
+    /** Text shown in the dropdown while an async filter is running. @default "Searching..." */
+    loadingText?: string;
+    /** Text shown in the dropdown when no results match. @default "No results found" */
+    noResultsText?: string;
+    /** Text shown in the dropdown when an async filter throws. @default "Search failed" */
+    errorText?: string;
+}
+declare class ComboBox extends FormControl<ComboBoxOptionProps | ComboBoxOptionProps[]> {
+    protected _dataset: ComboBoxOptionProps[];
+    protected _filteredDataset: ComboBoxOptionProps[];
+    private _allowMultiple;
+    private _placeholder;
+    private _onSelectHandler?;
+    private _clearText;
+    private _isDropdownOpen;
+    private _allowFiltering;
+    private _filterFn;
+    private _returnFullDataset;
+    private _explicitlyDisabled;
+    private _fuseInstance;
+    private _allowCreate;
+    private _focusedIndex;
+    private _pendingTimeouts;
+    protected _isLoading: boolean;
+    protected _hasError: boolean;
+    protected _searchSeq: number;
+    private _loadingText;
+    private _noResultsText;
+    private _errorText;
+    constructor(field: FormField<ComboBoxOptionProps | ComboBoxOptionProps[]>, dataset: ComboBoxDataset, props?: ComboBoxProps);
+    private _normalizeDataset;
+    private _getFuseInstance;
+    private _invalidateFuseCache;
+    private _defaultFilteringFunction;
+    private _disableOnEmptyDataset;
+    private _syncDatasetFromField;
+    private _trackTimeout;
+    private _clearAllTimeouts;
+    private _createSearchBar;
+    private _createDropdown;
+    private _createOption;
+    private _createOptionsList;
+    private _createCreateOption;
+    /** Builds the inner content of the dropdown list panel. */
+    protected _createDropdownBody(): string;
+    /** Returns the empty-state message string (HTML-safe). PeoplePicker overrides for context-aware hints. */
+    protected _emptyMessage(): string;
+    /**
+     * Sets the async-loading state and updates the dropdown body.
+     * Idempotent -- calling with the same value is a no-op.
+     * Does NOT touch `form-control--loading`; the input stays typable.
+     */
+    protected _setLoading(loading: boolean): void;
+    protected _refreshDropdownList(): void;
+    private _updateCreateOption;
+    private _refreshChevron;
+    private _displaySelection;
+    private _selectOption;
+    private _createNewOption;
+    private _afterSelection;
+    private _updateOptionSelectedStates;
+    protected _onSelectHandlerProxy(): void;
+    private _onResetFilteredDataSearch;
+    private _openDropdown;
+    private _closeDropdown;
+    private _bindKeyboardNavigation;
+    private _moveFocus;
+    private _selectFocusedOption;
+    private _bindDropdownMousedownHandler;
+    private _bindOptionClickHandlers;
+    private _bindSearchBarEventHandlers;
+    protected _onSearchEventListeners(): void;
+    private _bindBlurHandler;
+    private _bindClearIconHandler;
+    private _bindCreateOptionHandler;
+    private _bindClearButtonHandler;
+    protected _applyEventListeners(): void;
+    clearSelection(): void;
+    get modifierClasses(): string;
+    toString(): string;
+    get dataset(): ComboBoxOptionProps[];
+    set dataset(data: ComboBoxDataset);
+    set filteringFunction(callback: (search: string) => ComboBoxOptionProps[] | Promise<ComboBoxOptionProps[]>);
+    render(): void;
+    remove(): void;
 }
 
 interface PeopleSearchResultData {
@@ -741,6 +1122,13 @@ interface PeopleSearchOptions {
      * @default 15
      */
     principalSource?: number;
+    /**
+     * When true, returns raw SharePoint results without normalization
+     * (no phantom filtering, no MultipleMatches flattening, no dedup).
+     * Resolution paths that need provider-specific Key selection use this.
+     * @default false
+     */
+    raw?: boolean;
 }
 interface UserProfile {
     employeeId: string;
@@ -758,6 +1146,20 @@ interface UserProfile {
 interface FullUserDetails extends UserProfile {
     siteUserId: number;
     groups: SPGroup[];
+    /**
+     * All known claims login names for this person across duplicate/ghost UIL
+     * entries on on-premises SharePoint. Populated by aggregating the `Key`
+     * values of every resolved People Picker variant, plus `spUser.LoginName`.
+     * Used for robust group-membership checks that OR-filter by multiple logins.
+     */
+    accountLogins: string[];
+    /**
+     * All known email addresses for this person across UIL/UPS/picker results.
+     * Populated by aggregating `EntityData.Email` from every resolved People
+     * Picker variant, plus `spUser.Email` and the UPS `profile.Email`. Used for
+     * robust group-membership checks that OR-filter by multiple emails.
+     */
+    accountEmails: string[];
 }
 
 /**
@@ -765,6 +1167,18 @@ interface FullUserDetails extends UserProfile {
  *
  * Provides the {@link CurrentUser} async singleton for accessing the
  * authenticated user's profile, group memberships, and resolved access level.
+ *
+ * Access-level resolution uses a MULTI-IDENTIFIER OR-filter
+ * ({@link SiteApi.isUserInGroupByIdentities}) rather than a single email.
+ * On-premises SharePoint can create multiple User Information List entries for
+ * the same AD person -- a "real" entry with full data and a "ghost" entry keyed
+ * on the employeeId with a different LoginName and often an empty Email column.
+ * Group membership may be recorded under either entry. A single-email check
+ * silently misses the cases where the stored row uses the ghost login or the
+ * People Picker email does not match the UIL Email column. OR-filtering by the
+ * full identity set (all known logins + all known emails) from
+ * {@link FullUserDetails.accountLogins} and {@link FullUserDetails.accountEmails}
+ * covers both accounts in one server-side request per group, at no extra cost.
  *
  * @see {@link GroupHierarchyEntry} for configuring group-based access levels.
  * @see `src/base/sharepoint/api/people.api.ts` for the underlying API calls.
@@ -793,8 +1207,12 @@ interface InitializeOptions {
  * Async singleton that holds the current user's profile and group hierarchy.
  *
  * Wraps {@link getFullUserDetails} from `people.api.ts`, which consolidates
- * data from `ensureUser`, `getuserbyid/groups`, and `PeopleManager` into a
- * single {@link FullUserDetails} object.
+ * data from `ensureUser`, `getuserbyid/groups`, `PeopleManager`, and the
+ * People Picker into a single {@link FullUserDetails} object. The `email` and
+ * `displayName` fields are picker-canonical: they come from the People Picker's
+ * `EntityData.Email` and `DisplayText`, with fallback to UPS and ensureUser
+ * values. This guarantees byte-identical email matches with {@link searchUsers}
+ * results in orgs where a user has multiple AD accounts.
  *
  * **Lifecycle:**
  * 1. `const user = await new CurrentUser().initialize(groupHierarchy?, options?)` --
@@ -843,11 +1261,38 @@ declare class CurrentUser {
      * Loads user details from SharePoint and resolves the group hierarchy.
      *
      * Idempotent -- returns `this` immediately on subsequent calls once
-     * initialization has succeeded.
+     * initialization has succeeded. Concurrent callers are coalesced: if
+     * `initialize()` is already in flight, all concurrent callers await the
+     * same promise rather than issuing duplicate fetches.
+     *
+     * **Group resolution -- multi-identifier OR-filter:**
+     * Access-level resolution uses {@link SiteApi.isUserInGroupByIdentities} with
+     * the user's FULL identity set (all known emails + logins) rather than a
+     * single email. This is necessary on on-premises SharePoint farms where a
+     * single AD person can have multiple User Information List entries:
+     *
+     * - A "real" entry with full data (correct email, display name, login)
+     * - A "ghost" entry keyed on employeeId with a different LoginName and often
+     *   an empty Email column
+     *
+     * Group membership can be recorded under either entry. A single-email check
+     * fails whenever the stored row uses the ghost login or when the People Picker
+     * email (picker-canonical) differs from the UIL Email column value.
+     *
+     * The identity set is built as follows:
+     * - `emails`: for the authenticated user, `_spPageContextInfo.userEmail` is
+     *   prepended first (session email, immune to ghost UIL entries), then all
+     *   emails from `data.accountEmails`. For a target user, only `accountEmails`.
+     * - `logins`: `data.loginName` (from `ensureUser`) plus `data.accountLogins`
+     *   (from all picker variants). Deduped, empties dropped.
+     *
+     * The `email` and `displayName` stored in `#data` (accessible via `get('email')`
+     * and `get('displayName')`) are the picker-canonical values returned by
+     * {@link getFullUserDetails} and are not altered here.
      *
      * @param groupHierarchy - Optional ordered list of groups from lowest to
      *   highest privilege. The array is walked from last index to first; the
-     *   first case-insensitive match wins.
+     *   highest-priority match wins (parallel membership checks per entry).
      * @param options - Optional settings. Use `options.targetUser` to load a
      *   different user's profile (debug/testing).
      * @returns A Promise resolving with the initialized `CurrentUser` instance.
@@ -880,9 +1325,18 @@ declare class CurrentUser {
     /**
      * Type-safe setter for any property on the underlying {@link FullUserDetails}.
      *
-     * This is a data-override escape hatch. Setting `'groups'` does **not**
+     * **RESTRICTED -- internal / debug use only.**
+     *
+     * This is a data-override escape hatch on a **shared security singleton**.
+     * Any mutation is visible to all callers of `new CurrentUser()` across the
+     * entire page lifecycle. In particular, setting `'groups'` does NOT
      * re-resolve the group hierarchy -- that is resolved once during
-     * {@link initialize}.
+     * {@link initialize}, and `accessLevel` / `group` / `groupId` / `groupTitle`
+     * getters continue to return the originally resolved values.
+     *
+     * Do not call this in route code or application logic. It exists for test
+     * harnesses and debug tooling that need to inject a specific user state
+     * without re-initializing the singleton.
      *
      * @typeParam K - A key of `FullUserDetails`.
      * @param key - The property name to set.
@@ -1017,6 +1471,18 @@ declare class UserIdentity {
      * Returns a new `UserIdentity` with merged properties. Existing properties
      * are overwritten by the new values. Core fields (`email`, `displayName`)
      * and the cached `details` carry over.
+     *
+     * **Shared `#details` reference -- intentional design.**
+     * When the source instance has already called {@link fetchFullDetails},
+     * the derived instance receives a reference to the same `FullUserDetails`
+     * object (`derived.details === original.details`). This is intentional:
+     * the class is "immutable" in the sense that its identity data (email,
+     * displayName, properties) cannot be mutated from outside; the cached
+     * details are supplemental read-only data that avoids a redundant fetch.
+     * `fetchFullDetails()` can overwrite `#details` on either instance
+     * independently, but the underlying `FullUserDetails` object itself is
+     * not frozen -- mutating it externally would affect both. Treat the object
+     * returned by `.details` as read-only.
      */
     with(properties: UserIdentityProperties): UserIdentity;
     /**
@@ -1056,12 +1522,19 @@ declare class UserIdentity {
      * Creates a `UserIdentity` from a PeoplePicker search result.
      *
      * Extracts the email from `EntityData.Email` and the display name
-     * from `DisplayText`.
+     * from `DisplayText`. Returns `null` when the search result carries no
+     * usable email address -- this happens for distribution lists, security
+     * groups, and some external/guest entries returned by the People Picker
+     * whose `EntityData.Email` is missing or empty.
+     *
+     * Callers should handle the `null` return: filter it out of arrays (e.g.
+     * `.map(fromSearchResult).filter(Boolean)`) or skip single values with a
+     * null-check.
      *
      * @param result - A {@link PeopleSearchResult} from `searchUsers()` or PeoplePicker resolution.
-     * @returns A new `UserIdentity` instance.
+     * @returns A new `UserIdentity` instance, or `null` if no email is available.
      */
-    static fromSearchResult(result: PeopleSearchResult): UserIdentity;
+    static fromSearchResult(result: PeopleSearchResult): UserIdentity | null;
     /**
      * Creates a `UserIdentity` from an initialized {@link CurrentUser} singleton.
      *
@@ -1108,6 +1581,7 @@ declare class PeoplePicker extends ComboBox {
     constructor(field: FormField<ComboBoxOptionProps | ComboBoxOptionProps[]>, props: PeoplePickerProps);
     private _executeSearch;
     protected _onSearchEventListeners(): void;
+    protected _emptyMessage(): string;
     remove(): void;
     /**
      * Searches Active Directory for the given identifier and, if a unique match
@@ -1130,13 +1604,97 @@ declare class PeoplePicker extends ComboBox {
     get queryResults(): PeopleSearchResult[];
 }
 
+type FieldLabelPosition = 'left' | 'top' | 'right' | 'bottom';
+interface FieldLabelProps extends HTMDElementProps {
+    /**
+     * Position of the label relative to the wrapped component
+     * @default 'top'
+     */
+    position?: FieldLabelPosition;
+    /**
+     * Tooltip text to display on hover
+     */
+    tooltip?: string;
+}
+/**
+ * Interface that SPARC form controls may implement to advertise the element id
+ * that a `<label for="...">` should target, and an optional preferred label position.
+ *
+ * Implementing this removes the need for `instanceof` checks in FieldLabel and
+ * allows any component to opt-in (CheckBox, DateInput, etc.) without coupling
+ * FieldLabel to concrete types.
+ *
+ * @example
+ * // In CheckBox:
+ * get labelTarget() { return `${this.id}-input`; }
+ * get defaultLabelPosition(): FieldLabelPosition { return 'left'; }
+ */
+interface LabelTargetProvider {
+    readonly labelTarget: string;
+    readonly defaultLabelPosition?: FieldLabelPosition;
+}
+/**
+ * FieldLabel component that wraps any HTMDElement with a label.
+ * Provides flexible positioning and optional tooltip functionality.
+ *
+ * @example
+ * ```typescript
+ * const input = new TextInput('', { placeholder: 'Enter your name' });
+ * const field = new FieldLabel('Full Name', input, {
+ *   position: 'top',
+ *   tooltip: 'Please enter your full legal name'
+ * });
+ * field.render();
+ * ```
+ */
+declare class FieldLabel extends HTMDElement {
+    private _labelText;
+    private _position;
+    private _tooltip?;
+    private _componentId?;
+    constructor(labelText: string, component: HTMDElement, props?: FieldLabelProps);
+    get [Symbol.toStringTag](): string;
+    get modifierClasses(): string;
+    /**
+     * Generates the label HTML with optional tooltip
+     */
+    private _createLabel;
+    toString(): string;
+    render(): void;
+    /**
+     * Updates the label text
+     */
+    set label(text: string);
+    /**
+     * Updates the tooltip text. Uses a scoped find on this instance to avoid
+     * clobbering sibling FieldLabel components.
+     */
+    set tooltip(tooltip: string | undefined);
+    /**
+     * Updates the position of the label
+     */
+    set position(position: FieldLabelPosition);
+    /**
+     * Gets the label text
+     */
+    get label(): string;
+    /**
+     * Gets the current position
+     */
+    get position(): FieldLabelPosition;
+    /**
+     * Gets the tooltip text
+     */
+    get tooltip(): string | undefined;
+}
+
 type DATE_FORMATS = 'dd-mm-yyyy' | 'mm-dd-yyyy' | 'yyyy-mm-dd';
 interface DateInputProps extends FormControlProps {
     format?: DATE_FORMATS;
     placeholder?: string;
 }
 declare const FORMAT_MAP: Record<DATE_FORMATS, string>;
-declare class DateInput extends FormControl<string> {
+declare class DateInput extends FormControl<string> implements LabelTargetProvider {
     format: DATE_FORMATS;
     private _placeholder;
     private _dayjsFormat;
@@ -1145,6 +1703,9 @@ declare class DateInput extends FormControl<string> {
     private _isCalendarOpen;
     private _pendingTimeouts;
     constructor(fieldOrValue: string | FormField<string>, props?: DateInputProps);
+    /** LabelTargetProvider: FieldLabel's <label for="..."> targets the inner <input> */
+    get labelTarget(): string;
+    get defaultLabelPosition(): FieldLabelPosition;
     private _trackTimeout;
     private _clearAllTimeouts;
     private _createCalendarPanel;
@@ -1155,12 +1716,24 @@ declare class DateInput extends FormControl<string> {
     private _syncValueFromInput;
     private _applyDateSelection;
     /**
-     * Sets the date programmatically and syncs internal state + DOM.
-     * Used by DateRangeInput to adjust the paired date without closing the calendar.
+     * Binds day-cell click handlers using the managed-listener pattern to prevent
+     * accumulation on repeated calls from `_refreshCalendarContent()`.
      */
-    setDate(date: dayjs.Dayjs): void;
     private _bindDayClickHandlers;
     protected _applyEventListeners(): void;
+    /**
+     * Overrides FormControl.isDisabled to also close the calendar when the component
+     * is disabled mid-interaction. The `_isCalendarOpen` flag is reset so the calendar
+     * can be re-opened once the component is re-enabled.
+     */
+    set isDisabled(flag: boolean);
+    get isDisabled(): boolean;
+    /**
+     * Overrides FormControl.isLoading to also close the calendar when loading state
+     * is toggled on mid-interaction.
+     */
+    set isLoading(flag: boolean);
+    get isLoading(): boolean;
     get modifierClasses(): string;
     toString(): string;
     render(): void;
@@ -1186,6 +1759,13 @@ interface DateRangeInputProps extends HTMDElementProps {
     /** Duration unit label in footer summary (default: "days"), e.g. "nights" */
     summaryLabel?: string;
 }
+/**
+ * DateRangeInput intentionally extends HTMDElement rather than FormControl because it
+ * owns two separate FormFields (startField, endField) rather than a single _value field.
+ * Forcing it into the FormControl shape would require either a composite value type or
+ * exposing the pair as a single field -- both options add complexity with no benefit.
+ * Disabled state and validation are managed internally.
+ */
 declare class DateRangeInput extends HTMDElement {
     readonly startField: FormField<string>;
     readonly endField: FormField<string>;
@@ -1236,31 +1816,24 @@ declare class DateRangeInput extends HTMDElement {
     remove(): void;
 }
 
-interface NumberInputProps extends FormControlProps {
+interface NumberInputProps extends DebouncedInputProps {
     min?: number;
     step?: number;
     max?: number;
-    /** Debounce delay in milliseconds for syncing value on keystroke. @default 300 */
-    debounceMs?: number;
 }
-declare class NumberInput extends FormControl<number> {
+declare class NumberInput extends DebouncedInput<number> {
     min?: number;
     step?: number;
     max?: number;
-    private _debouncedSync;
     constructor(fieldOrValue: number | FormField<number>, props: NumberInputProps);
-    private _syncValue;
-    protected _applyEventListeners(): void;
-    remove(): void;
+    protected _syncValue(): void;
     toString(): string;
 }
 
-interface TextAreaProps extends FormControlProps {
+interface TextAreaProps extends DebouncedInputProps {
     placeholder?: string;
     spellcheck?: boolean;
     autocomplete?: boolean;
-    /** Debounce delay in milliseconds for syncing value on keystroke. @default 300 */
-    debounceMs?: number;
     /** Number of visible text rows. @default 4 */
     rows?: number;
     /** Maximum character length. No limit if undefined. */
@@ -1270,7 +1843,7 @@ interface TextAreaProps extends FormControlProps {
     /** Automatically adjust height to fit content. @default false */
     autoResize?: boolean;
 }
-declare class TextArea extends FormControl<string> {
+declare class TextArea extends DebouncedInput<string> {
     placeholder: string;
     spellcheck: boolean;
     autocomplete: boolean;
@@ -1278,38 +1851,35 @@ declare class TextArea extends FormControl<string> {
     maxLength?: number;
     resize: 'none' | 'vertical' | 'horizontal' | 'both';
     autoResize: boolean;
-    private _debouncedSync;
     constructor(fieldOrValue: string | FormField<string>, props?: TextAreaProps);
-    private _syncValue;
+    protected _syncValue(): void;
     private _autoResize;
-    protected _applyEventListeners(): void;
-    remove(): void;
+    protected _onInput(): void;
     toString(): string;
 }
 
-interface TextInputProps extends FormControlProps {
+interface TextInputProps extends DebouncedInputProps {
     spellcheck?: boolean;
     autocomplete?: boolean;
     hideChars?: boolean;
     placeholder?: string;
-    /** Debounce delay in milliseconds for syncing value on keystroke. @default 300 */
-    debounceMs?: number;
 }
-declare class TextInput extends FormControl<string> {
+declare class TextInput extends DebouncedInput<string> {
     spellcheck: boolean;
     autocomplete: boolean;
     hideChars: boolean;
     placeholder: string;
-    private _debouncedSync;
     constructor(fieldOrValue: string | FormField<string>, props: TextInputProps);
-    private _syncValue;
-    protected _applyEventListeners(): void;
-    remove(): void;
+    protected _syncValue(): void;
     toString(): string;
 }
 
-declare class CheckBox extends FormControl<boolean> {
+declare class CheckBox extends FormControl<boolean> implements LabelTargetProvider {
     constructor(fieldOrValue: boolean | FormField<boolean>, props: FormControlProps);
+    /** LabelTargetProvider: FieldLabel should bind `for` to the inner <input> */
+    get labelTarget(): string;
+    /** LabelTargetProvider: checkboxes conventionally have the label to the left */
+    get defaultLabelPosition(): FieldLabelPosition;
     protected _applyEventListeners(): void;
     toString(): string;
 }
@@ -1334,10 +1904,18 @@ declare class List<T extends string | number> extends HTMDElement {
     private _refreshDataset;
     private _defaultOrderingFn;
     private _applySortClass;
-    private _handleHeaderSortEvent;
-    private _onHeaderSortEventListeners;
-    private _onItemSelectEventListeners;
-    private _applyDatasetEventListeners;
+    /**
+     * Attaches the header-sort click listener as a single delegated managed
+     * listener on the root element. _addManagedListener removes the prior binding
+     * before re-attaching, so _refresh() / .data / .children never stacks duplicates.
+     */
+    private _applyHeaderSortListener;
+    /**
+     * Attaches row-select click listeners as a single delegated managed listener
+     * on the root element. Using delegation (rather than per-row listeners) means
+     * the binding survives tbody replacement without re-registration.
+     */
+    private _applyRowSelectListener;
     protected _applyEventListeners(): void;
     set data(data: T[][]);
     get data(): T[][];
@@ -1639,8 +2217,34 @@ interface RouteOptions extends Omit<ViewProps, 'containerSelector'> {
 declare class Route extends View {
     title: string;
     protected _routeStyle?: StyleResource;
+    private _cleanupRunner?;
     constructor(props?: RouteOptions);
-    hide(duration?: number, onCompleteCallback?: () => void): void;
+    /**
+     * Registers the cleanup runner supplied by `defineRoute`.
+     * Called once at route creation; invoked in `remove()` before teardown.
+     */
+    registerCleanupRunner(fn: () => void): void;
+    /**
+     * Tears down this route: runs any registered `onCleanup` callbacks first,
+     * then delegates to View/HTMDElement for full DOM and event cleanup.
+     *
+     * Always call `super.remove()` if overriding.
+     */
+    remove(): void;
+    /**
+     * Hides this route, disabling its stylesheet after the animation completes.
+     * Returns the Promise from View.hide() so callers can await the transition.
+     */
+    hide(duration?: number, onCompleteCallback?: () => void): Promise<void>;
+    /**
+     * Loads and enables the route stylesheet, then delegates to View.show().
+     * Returns the Promise from View.show() so callers can await the transition.
+     *
+     * A5/A6 -- _onRefresh runs on every show(), including first render and every
+     * cached-route revisit. This is the "refresh on return" mechanism: cached Route
+     * objects are never evicted (W2), so show() re-runs the onRefreshHandler each time
+     * to let the route update its content from the latest application state.
+     */
     show(duration?: number, onCompleteCallback?: () => void): Promise<void>;
     set routeStylePath(path: string);
     set onRefreshHandler(callback: () => void);
@@ -1791,6 +2395,11 @@ declare class Router {
     /**
      * Creates the built-in 404 route with an 8-second auto-redirect to home.
      * Used when no custom `notFoundRoute` is provided.
+     *
+     * B5 fix -- `redirectTimer` was only cleared when the 404 page was re-shown.
+     * If the user manually navigated away before the 8s elapsed, the timer still fired
+     * and forced a `navigateTo('/')`. Now the Route subclass overrides `remove()` to
+     * clear the timer on teardown (called by `_cleanup(outgoing)` during every transition).
      */
     private _createDefaultNotFoundRoute;
     /**
@@ -1808,8 +2417,23 @@ declare class Router {
     /** Registers a `popstate` listener so browser back/forward triggers a page refresh. */
     private _addPopStateEventListeners;
     /**
-     * Unbinds all jQuery event handlers inside the container and clears its HTML.
-     * Called before every route transition to prevent handler leaks from the previous route.
+     * Tears down the outgoing route and empties the container.
+     *
+     * A1 fix -- the old implementation did `$(sel).find('*').addBack().off()` + `.html('')`,
+     * which operated at the jQuery/DOM level only and never called `HTMDElement.remove()`.
+     * This meant FormField subscribers, component timers, and child teardown chains (from
+     * package 02) never ran. The asymmetry was a maintenance hazard: SPARC's remove() chain
+     * is the canonical teardown path.
+     *
+     * A2 -- `hide(0)` + `_cleanup()` previously duplicated teardown responsibility.
+     * `hide(0)` only ran `removeEventListeners()` and disabled the stylesheet; `_cleanup()`
+     * did the DOM clear. Now `_cleanup(oldRoute)` is the single canonical teardown:
+     * it calls `route.remove()` (which disposes FormFields/timers/children via the package 02
+     * chain), then clears the container for any residual content, and calls `Toast.dismissAll()`
+     * so stuck loading toasts do not persist across routes.
+     *
+     * @param outgoing - The route that is being navigated away from. When provided,
+     *   `route.remove()` is called before clearing the container.
      */
     private _cleanup;
     /**
@@ -1837,7 +2461,10 @@ declare class Router {
      * @throws {SystemError} If the path is not registered (and no `notFoundRoute` is configured) or the module does not default-export a Route.
      */
     private _loadRoute;
-    /** Serialises a key-value record into a `?key=value&` query string. */
+    /**
+     * Serialises a key-value record into a `?key=value&` query string.
+     * Returns `''` when `obj` is empty so param-less URLs do not get a bare `?`.
+     */
     private _parseQueryParamsToString;
     /**
      * Core navigation routine. Loads the target route, tears down the current one, and
@@ -1882,11 +2509,30 @@ declare class Router {
     /**
      * Evaluates the active navigation guard, if any.
      * Returns `true` when navigation should proceed, `false` when it should be blocked.
+     *
+     * B4 fix -- serialized via `#guardInFlight`. If a navigation-guard dialog is already
+     * displayed, a second concurrent call returns `false` immediately so two dialogs can
+     * never be shown at the same time and navigation cannot race through while the first
+     * dialog is pending.
      */
     private _checkNavigationGuard;
     /**
      * Shows a navigation guard confirmation Dialog.
      * Resolves `true` if the user chooses to leave, `false` to stay.
+     *
+     * B3 fix -- previously the Promise only resolved on button click. Esc, the close-X,
+     * and backdrop clicks never settled it, leaving navigation suspended forever.
+     *
+     * The fix uses `ModalProps.onCloseHandler` (package 08 contract): that handler fires
+     * EXACTLY ONCE on every UI dismissal path -- button, Esc, close-X, and backdrop/
+     * focus-loss. Modal.remove() does NOT call onCloseHandler, so programmatic teardown
+     * (e.g. route cleanup) does not falsely settle the guard.
+     *
+     * Settlement logic:
+     *   - "Leave" button: resolves true, then calls dialog.close() + dialog.remove().
+     *   - "Stay" button and ALL dismiss paths (Esc, close-X, backdrop): resolve false via
+     *     onCloseHandler. The "Leave" button bypasses onCloseHandler by using a `settled`
+     *     flag, so only the first settlement fires.
      */
     private _showNavigationGuardDialog;
 }
@@ -1967,11 +2613,13 @@ declare class SimpleElapsedTimeBenchmark {
 
 interface ErrorOptions {
     breaksFlow?: boolean;
+    cause?: unknown;
 }
 declare class SystemError extends Error {
     private _name;
     private _timestamp;
     private _breaksFlow;
+    readonly cause: unknown;
     constructor(name: string, message: string, options?: ErrorOptions);
     static fromErrorEvent(event: ErrorEvent, options?: ErrorOptions): SystemError;
     get timestamp(): Date;
@@ -1987,17 +2635,67 @@ interface ErrorBoundaryProps {
     onAsyncErrorCallback?: (error: PromiseRejectionEvent) => void;
     name?: string;
 }
+/**
+ * ErrorBoundary -- catches unhandled errors and unhandled promise rejections,
+ * classifies them as SystemErrors, and displays BreakingErrorDialog (breaksFlow:true)
+ * or Toast (breaksFlow:false).
+ *
+ * HIGH fixes (package 08):
+ *
+ *   1. Listener accumulation on re-instantiation (HIGH):
+ *      The constructor previously called _addEventListeners() with no removal path.
+ *      If ErrorBoundary is instantiated more than once (Router constructor, tests,
+ *      sandbox reloads) the error/unhandledrejection handlers stacked on window,
+ *      causing duplicate BreakingErrorDialogs. Bound references are now stored so
+ *      dispose() can remove them precisely.
+ *
+ *   2. Unhandled-rejection path was indirect (HIGH):
+ *      The old code called reportError(reason) to re-dispatch as a synthetic 'error'
+ *      event. This was unreliable: if reason was not an Error (string/null/number),
+ *      reportError() would throw or produce an unusable ErrorEvent, silently losing
+ *      the rejection. The handler now calls _displayError() directly and calls
+ *      e.preventDefault() to suppress the duplicate "Uncaught (in promise)" console
+ *      message.
+ *
+ *   3. Non-ErrorEvent handling (R3):
+ *      _parseEventData() previously returned a generic SystemError for any non-ErrorEvent
+ *      (CSP violations, resource load failures). It now extracts available context
+ *      (message, filename, lineno, colno) from the Event to produce a more useful error.
+ */
 declare class ErrorBoundary {
     protected _targetElement: Window | HTMLElement;
     protected _onErrorCallback?: (error: ErrorEvent) => void;
     protected _onAsyncErrorCallback?: (error: PromiseRejectionEvent) => void;
     protected _name: string;
+    private readonly _boundErrorHandler;
+    private readonly _boundRejectionHandler;
     constructor(props: ErrorBoundaryProps);
     protected _displayError(error: SystemError): Promise<void>;
+    /**
+     * Classifies an incoming DOM Event as a SystemError.
+     *
+     * R3 fix: non-ErrorEvent events (CSP violations, resource load errors) previously
+     * returned a generic "Unknown Error" with no context. Now we extract whatever the
+     * Event makes available (message, filename, lineno, colno) to produce a more
+     * actionable error. ErrorEvents that contain an actual Error object are handled via
+     * SystemError.fromErrorEvent() which preserves the full stack trace.
+     */
     protected _parseEventData(event: Event): SystemError;
     private _onErrorEventHandler;
+    /**
+     * HIGH fix: calls _displayError() directly instead of re-dispatching via reportError().
+     * Also calls e.preventDefault() to suppress the duplicate "Uncaught (in promise)"
+     * console message that would otherwise appear after this handler runs.
+     */
     private _onAsyncErrorEventHandler;
     private _addEventListeners;
+    /**
+     * Removes the error and unhandledrejection event listeners from the target element.
+     *
+     * Call this before discarding an ErrorBoundary instance (e.g. in tests, or if the
+     * Router is re-initialized) to prevent duplicate handlers from stacking on window.
+     */
+    dispose(): void;
 }
 
 interface RuntimeEventOptions {
@@ -2007,6 +2705,18 @@ interface RuntimeEventOptions {
 interface RuntimeEventListenerOptions {
     once?: boolean;
 }
+/**
+ * Derives the DOM event-type string from a class name by lowercasing it.
+ *
+ * Both the RuntimeEvent constructor and every subclass's static `listener` method
+ * MUST derive the event name from this same function. Hardcoding the string in the
+ * listener is error-prone: renaming the class would silently break all subscriptions.
+ *
+ * Usage:
+ *   constructor: `super(eventType, ...)` receives `runtimeEventName(new.target.name)`
+ *   static listener: pass `runtimeEventName(ClassName.name)` as the event name
+ */
+declare function runtimeEventName(className: string): string;
 declare abstract class RuntimeEvent extends Event {
     protected _target: EventTarget;
     constructor(eventTarget: EventTarget, options?: RuntimeEventOptions);
@@ -2068,6 +2778,50 @@ declare class NavigationEvent extends RuntimeEvent {
 
 interface RouteConfig {
     setRouteTitle: (title: string) => void;
+    /**
+     * Register a cleanup function that runs both before each route refresh and
+     * on final route teardown (navigate-away / route.remove()).
+     *
+     * Use this to dispose FormFields, cancel timers, or unsubscribe from any
+     * resource created inside the `defineRoute` closure:
+     *
+     * ```ts
+     * defineRoute(async (config) => {
+     *   const filterField = new FormField({ value: '' });
+     *   config.onCleanup(() => filterField.dispose());
+     *   // ...
+     * });
+     * ```
+     *
+     * Effect-cleanup semantics: registered cleanups from render N are run before
+     * render N+1 starts, so every refresh begins with a clean slate.
+     * All registered cleanups are also run when the route is destroyed.
+     * Each cleanup runs in its own try/catch; a throwing cleanup is logged and
+     * does not block the rest.
+     */
+    onCleanup: (fn: () => void) => void;
+    /**
+     * MEMORY LEAK WARNING -- Direct reference to the underlying Route object.
+     *
+     * The `$DANGEROUS__route_backdoor` prop is intentionally prefixed to make misuse
+     * visible in code review. Route objects are cached permanently (W2 -- no eviction),
+     * so any state you store on the Route (or in a closure over it) persists across every
+     * revisit to this route for the lifetime of the application.
+     *
+     * Specifically:
+     * - Timers/intervals started in the refresh handler must be cleared in a remove()
+     *   override; they are NOT automatically cleared by the Router.
+     * - Any DOM reference held via this backdoor may keep old DOM nodes alive after
+     *   the route is torn down, preventing garbage collection.
+     *
+     * Prefer `config.onCleanup()` for disposing route-local FormFields, subscriptions,
+     * and timers -- it covers both the navigate-away case and pre-refresh cleanup
+     * without requiring a manual remove() override.
+     *
+     * Only use this when the standard defineRoute API (children, setRouteTitle,
+     * onCleanup) is genuinely insufficient. If you override remove(), always call
+     * super.remove().
+     */
     $DANGEROUS__route_backdoor: Route;
 }
 declare function defineRoute(closureCallback: (config: RouteConfig) => Promise<HTMDNode> | HTMDNode): Promise<Route>;
@@ -2081,6 +2835,21 @@ declare function defineRoute(closureCallback: (config: RouteConfig) => Promise<H
  * - `toFieldValue` -- serialize JS values for writes (createItem, updateItem)
  * - `fromFieldValue` -- manual parse utility for explicit type conversion
  * - `parseFieldValues` -- auto-parse all fields on read (used internally by ListApi)
+ *
+ * ## Serialization contract
+ *
+ * Both `fromFieldValue` and `parseFieldValues` apply the same gating rules
+ * (enforced via the shared `_parseSPString` helper):
+ *
+ * - `"true"` / `"false"` -> `boolean`
+ * - Strings starting with `{` or `[` -> `JSON.parse()` (warn + return raw string on failure)
+ * - All other strings (including numeric strings like `"42"`) -> returned as-is
+ *
+ * BREAKING CHANGE (package 07): Prior to this revision, `fromFieldValue` attempted
+ * `JSON.parse` on ANY non-empty string, so `fromFieldValue<string>("42")` returned
+ * the number `42`. It now passes numeric and other non-JSON strings through unchanged,
+ * matching `parseFieldValues` and the documented contract. Callers that depended on
+ * the implicit numeric coercion must pre-convert (e.g. `Number(fromFieldValue(raw))`).
  */
 
 type SPSimpleValue = string | number | boolean;
@@ -2116,10 +2885,13 @@ declare function toFieldValue(value: SPFieldValue): string;
 /**
  * Parse a raw SharePoint string value into a typed JavaScript value.
  *
- * Attempts `JSON.parse` first; falls back to the raw string on failure.
  * Returns `null` for null, undefined, or empty string input.
- *
  * The developer provides the expected type via the generic parameter.
+ *
+ * Gating rules (shared with `parseFieldValues`):
+ * - `"true"` / `"false"` -> `boolean`
+ * - Strings starting with `{` or `[` -> `JSON.parse()` (warn + return raw string on failure)
+ * - All other strings (including numeric strings like `"42"`) -> returned as-is (unchanged)
  */
 declare function fromFieldValue<T>(raw: string): T | null;
 
@@ -2147,6 +2919,19 @@ type CAMLValueOperator = 'Eq' | 'Neq' | 'Gt' | 'Lt' | 'Geq' | 'Leq' | 'Contains'
  * - `string` -- shorthand for exact match (`Eq` operator)
  * - `{ value, operator }` -- explicit operator with a single value
  * - `{ value: string[], operator: 'Or', match? }` -- same-field multi-value OR
+ *
+ * ## Type="Text" invariant (A3)
+ *
+ * The CAML query builder always emits `<Value Type="Text">` for all value nodes,
+ * regardless of the operator. This is intentional: SPARC only creates Text and Note
+ * (multi-line text, `richText: false`) fields -- there are no Number, Boolean, or
+ * DateTime field types to reason about. SharePoint accepts string comparison for
+ * Text fields even when the stored value is numeric.
+ *
+ * Consequence: callers must pre-stringify numeric values before passing them as
+ * CAML conditions. For example, use `"42"` not `42`, and `"true"` not `true`.
+ * Passing a number where a string is expected will be rejected by the TypeScript
+ * type (`string | string[]`) and would produce incorrect XML at runtime.
  *
  * @example
  * // Exact match (string shorthand):
@@ -2207,7 +2992,7 @@ type CAMLCondition = string | {
  * // Combined -- field conditions AND-ed, cross-field OR separately:
  * { Status: "Active", $or: [{ Dept: "HR" }, { Dept: "IT" }] }
  */
-type CAMLQueryObject = Record<string, CAMLCondition> & {
+type CAMLQueryObject = Omit<Record<string, CAMLCondition>, '$or'> & {
     $or?: CAMLQueryObject[];
 };
 interface CAMLOrderByField {
@@ -2292,6 +3077,12 @@ declare class ListApi {
     private _validateItemId;
     private _validateETag;
     private _validateNonEmptyString;
+    /**
+     * Validates that a CAML field name is XML-safe (matches SharePoint NCName format).
+     * Field names containing characters that break XML structure (e.g. `"`, `>`, `<`, `&`)
+     * indicate a programmer error and are rejected at runtime.
+     */
+    private _validateCamlFieldName;
     private _buildAndClause;
     private _buildOrClause;
     private _validateQueryObject;
@@ -2312,7 +3103,17 @@ declare class ListApi {
     getOwnedItems<T>(userId?: string): Promise<(T & SPItemWithETag)[]>;
     createItem(item: Record<string, SPFieldValue>): Promise<unknown>;
     deleteItem(id: number, etag: string): Promise<unknown>;
-    deleteALLItems(): Promise<void>;
+    /**
+     * Deletes every item in the list one by one.
+     *
+     * SETUP / TEARDOWN ONLY -- not for production use. This method is a serial
+     * loop with no transactional guarantee: a mid-loop failure leaves the list
+     * in a partially deleted state. It is intentionally not exported from
+     * `index.ts` so application code cannot reach it.
+     *
+     * @internal
+     */
+    protected _deleteALLItems(): Promise<void>;
     updateItem(id: number, fields: Record<string, SPFieldValue>, etag: string): Promise<unknown>;
     getFields(): Promise<SPField[]>;
     createField(options: CreateFieldOptions): Promise<SPField>;
@@ -2396,7 +3197,13 @@ declare class SiteApi {
      */
     getSiteGroups(): Promise<SPGroup[]>;
     /**
-     * Retrieves all users belonging to the given site group.
+     * Retrieves all users belonging to the given site group, filtering out ghost
+     * entries with empty/invalid email addresses and deduplicating by normalized
+     * email (keeping the row with the richer `Title` when duplicates exist).
+     *
+     * On-premises SharePoint can create a stale "ghost" principal alongside the
+     * valid one for each AD user -- the ghost has an empty `Email` column. This
+     * method drops those rows so callers never see phantom options in pickers.
      *
      * Accepts either a numeric group ID or a group name (title string).
      * Calls `/_api/web/sitegroups/getbyid(n)/users` or
@@ -2420,6 +3227,73 @@ declare class SiteApi {
     getGroupUsers(group: number | string, options: {
         enrich: true;
     }): Promise<(SPUser & UserProfile)[]>;
+    /**
+     * Returns the subset of a group's members whose `Email` equals `email`,
+     * filtered **server-side** via OData `$filter`.
+     *
+     * This is the preferred membership check for on-premises SharePoint because
+     * the `sitegroups/.../users` list can contain duplicate UIL entries for the
+     * same AD account (one valid, one ghost with an empty email). Matching on the
+     * stable `Email` column via a server-side filter avoids fetching the full
+     * membership list and sidesteps numeric site-user-ID ambiguity.
+     *
+     * @param group - Numeric group ID or group name string.
+     * @param email - The email to test membership for (any case/whitespace).
+     * @returns An array of {@link SPUser} rows that matched (empty = not a member).
+     */
+    getGroupUsersByEmail(group: number | string, email: string): Promise<SPUser[]>;
+    /**
+     * Returns `true` when the user identified by `email` is a member of the
+     * given group, determined via a server-side OData email filter.
+     *
+     * @param group - Numeric group ID or group name string.
+     * @param email - The user's email address.
+     */
+    isUserInGroup(group: number | string, email: string): Promise<boolean>;
+    /**
+     * Returns the subset of a group's members that match ANY of the given emails
+     * or login names, via a single server-side OData `$filter` OR-expression.
+     *
+     * This method exists to handle on-premises SharePoint farms where the same AD
+     * person can have multiple User Information List entries (one real, one "ghost")
+     * with different `LoginName` values and sometimes an empty `Email` column.
+     * A single-email check misses membership when the stored group member row uses
+     * a different login or email than the one resolved from the People Picker.
+     * OR-filtering by the full identity set avoids that blind spot.
+     *
+     * Identifiers are normalized and validated before inclusion:
+     * - Emails: trimmed, lowercased, validated by {@link isValidEmail}.
+     * - Logins: trimmed (kept as-is for case-sensitive OData matching).
+     * - Empty, null, or invalid identifiers are silently dropped.
+     *
+     * If no valid identifiers remain after filtering, the method logs a warning
+     * and returns an empty array without making a network request.
+     *
+     * @param group - Numeric group ID or group name string.
+     * @param identities - Object with optional `emails` and/or `logins` arrays.
+     * @returns An array of {@link SPUser} rows that matched (empty = not a member).
+     */
+    getGroupMembersByIdentities(group: number | string, identities: {
+        emails?: string[];
+        logins?: string[];
+    }): Promise<SPUser[]>;
+    /**
+     * Returns `true` when the user represented by the given identity set is a
+     * member of the group, using a single server-side OR-filter across all
+     * provided emails and login names.
+     *
+     * Prefer this over {@link isUserInGroup} in contexts where the person may
+     * have duplicate or ghost UIL entries with different login names or an empty
+     * email column (common on on-premises SharePoint).
+     *
+     * @param group - Numeric group ID or group name string.
+     * @param identities - Object with optional `emails` and/or `logins` arrays.
+     * @returns `true` if any identity matched a group member row.
+     */
+    isUserInGroupByIdentities(group: number | string, identities: {
+        emails?: string[];
+        logins?: string[];
+    }): Promise<boolean>;
     /**
      * Retrieves the web properties for this site.
      *
@@ -2448,12 +3322,28 @@ declare class SiteApi {
 }
 
 /**
+ * Extracts the samAccountName (employee ID) from a SharePoint claims login string.
+ *
+ * SharePoint claims-encoded logins follow the pattern `i:0#.w|DOMAIN\username`.
+ * This function strips the claims prefix and domain, returning only the username portion.
+ *
+ * @param loginName - A claims-encoded or plain login string.
+ * @returns The samAccountName portion (e.g. `"rlopes"` from `"i:0#.w|DOMAIN\\rlopes"`).
+ */
+declare function parseEmployeeId(loginName: string): string;
+/**
  * Searches Active Directory for users matching the given query string.
  *
  * Uses the `clientPeoplePickerSearchUser` endpoint which performs a farm-wide
  * search against all configured identity providers. Reads
  * `_spPageContextInfo.webAbsoluteUrl` for the endpoint URL; the request digest
  * is auto-injected by {@link spPOST}.
+ *
+ * By default, results are normalized: unresolved phantom entries are dropped,
+ * `MultipleMatches` arrays are flattened into the top-level list, and duplicate
+ * entries for the same user (different auth providers) are deduped keeping the
+ * richest entry (most populated `EntityData`). Pass `options.raw: true` to
+ * skip normalization and receive the raw SharePoint response.
  *
  * @param query - The search string (name, email, or login name).
  * @param options - Optional search configuration. See {@link PeopleSearchOptions}.
@@ -2482,12 +3372,27 @@ declare function getUserProfile(loginName: string): Promise<UserProfile>;
  * `DOMAIN\\user` string. If the input lacks a claims prefix, the function
  * resolves the full claims identity via people picker search.
  *
- * The pipeline calls three endpoints:
- * 1. `ensureUser` (POST) -- registers the user on the site, returns site-level ID
- * 2. `getuserbyid/groups` (GET) -- returns SharePoint group memberships
- * 3. `PeopleManager/GetPropertiesFor` (GET) -- returns full user profile
+ * The pipeline calls four endpoints (three in parallel, one sequential):
+ * 1. `ensureUser` (POST) -- registers the user on the site, returns site-level
+ *    ID. Required -- throws if it fails.
+ * 2. `PeopleManager/GetPropertiesFor` (GET) -- returns full user profile from
+ *    UPS (farm-wide). Run in parallel with steps 1 and 4; fault-tolerant.
+ * 3. `getuserbyid/groups` (GET) -- returns SharePoint group memberships. Runs
+ *    after step 1 (needs site user ID); fault-tolerant.
+ * 4. `clientPeoplePickerSearchUser` (POST) -- resolves picker-canonical email
+ *    and display name via {@link _resolvePickerIdentity}. Run in parallel with
+ *    steps 1 and 2; fault-tolerant (returns null on failure).
  *
- * Steps 2 and 3 are fault-tolerant: if either fails, the corresponding
+ * **Email and display name preference:**
+ * The People Picker's `EntityData.Email` and `DisplayText` are used as the
+ * authoritative values for `email` and `displayName` respectively. This
+ * guarantees byte-identical matches with what {@link searchUsers} returns,
+ * which is important in orgs where a user has multiple AD accounts and the
+ * picker email is the canonical lookup key. Fallback chain:
+ * - `displayName`: picker DisplayText > UPS DisplayName > ensureUser Title
+ * - `email`:       picker EntityData.Email > UPS Email > ensureUser Email
+ *
+ * Steps 2, 3, and 4 are fault-tolerant: if any fails, the corresponding
  * fields are populated with empty defaults rather than aborting the entire call.
  *
  * @param loginName - The user's login name (claims-encoded or plain DOMAIN\\user).
@@ -2496,6 +3401,129 @@ declare function getUserProfile(loginName: string): Promise<UserProfile>;
  * @throws When `ensureUser` fails (user cannot be resolved on the site).
  */
 declare function getFullUserDetails(loginName: string, siteApi?: SiteApi): Promise<FullUserDetails>;
+
+/**
+ * Augments a {@link SystemError} with optional contextual properties that
+ * the email API attaches after construction. Because {@link SystemError} does not
+ * accept arbitrary properties in its `options` object, `cause` and `details`
+ * are assigned as instance properties and typed via this intersection.
+ */
+interface SystemErrorEmailAugment {
+    /** The original error that triggered this {@link SystemError}, if any. */
+    cause?: unknown;
+    /** Structured context object for diagnostics (e.g. invalid addresses, counts). */
+    details?: unknown;
+}
+/** A {@link SystemError} with optional `cause` and `details` properties. */
+type AugmentedSystemError = SystemError & SystemErrorEmailAugment;
+/**
+ * Arguments accepted by {@link sendEmail}.
+ *
+ * Recipients may be provided as a single string or an array of strings.
+ * All addresses are normalized (trimmed, lower-cased, deduped) before use.
+ */
+interface SendEmailArgs {
+    /**
+     * One or more recipient email addresses (required).
+     * At least one of `to`, `cc`, or `bcc` must resolve to a non-empty list.
+     */
+    to: string | string[];
+    /** Optional Cc email addresses. */
+    cc?: string | string[];
+    /** Optional Bcc email addresses. */
+    bcc?: string | string[];
+    /** Non-empty email subject (required). */
+    subject: string;
+    /** Non-empty email body, HTML or plain text (required). */
+    body: string;
+    /**
+     * Optional From address. When omitted, SharePoint uses the web application's
+     * configured outbound email account.
+     */
+    from?: string;
+}
+/**
+ * Successful result returned by {@link sendEmail}.
+ */
+interface SendEmailResult {
+    /** Always `true` on success. */
+    ok: true;
+    /** Total number of unique recipients across To, Cc, and Bcc. */
+    recipientCount: number;
+}
+/**
+ * Result returned by {@link resolveEmailsToLogins}.
+ *
+ * The three fields are mutually exclusive: each input email ends up in exactly
+ * one of `resolved`, `unresolved`, or `invalid`.
+ */
+interface ResolveEmailsResult {
+    /**
+     * Map from normalized email address to SharePoint claim login name
+     * for every email that was found in the site's User Information List.
+     */
+    resolved: Map<string, string>;
+    /**
+     * Emails that passed format validation but were not found in the site UIL.
+     * Each user must have visited or been granted access to this site collection
+     * before they appear in the UIL.
+     */
+    unresolved: string[];
+    /** Emails that failed basic format validation (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`). */
+    invalid: string[];
+}
+/** Shape of a single row returned by the siteUsers OData query. */
+interface SiteUserRow {
+    Email: string;
+    LoginName: string;
+}
+
+/**
+ * Maximum number of unique recipients (To + Cc + Bcc combined) per {@link sendEmail}
+ * call. Callers must split larger audiences into chunks of this size and call
+ * `sendEmail` once per chunk.
+ */
+declare const MAX_RECIPIENTS_PER_CALL = 50;
+/**
+ * Resolves a list of email addresses to their SharePoint claim login names
+ * via the current site's User Information List.
+ *
+ * Performs a single OR-filtered `siteUsers` query. Resolution-by-email bypasses
+ * UPS / People Picker, which has been observed to fail on some sites where SP
+ * cannot match UIL.Email column values reliably. Login-name lookups always
+ * work if the user is in the UIL.
+ *
+ * @param emails - Email addresses (any case, leading/trailing whitespace OK).
+ * @returns Resolved map, unresolved list, and invalid list. See {@link ResolveEmailsResult}.
+ * @throws {SystemError} `'EmailResolutionFailed'` (`breaksFlow=false`) if the
+ *   `siteUsers` query fails.
+ */
+declare function resolveEmailsToLogins(emails: string[]): Promise<ResolveEmailsResult>;
+/**
+ * Sends an email via `SP.Utilities.Utility.SendEmail`.
+ *
+ * Pipeline:
+ *   1. Validate args (subject, body, recipient presence)
+ *   2. Normalize, dedupe, and cap-check recipients across To/Cc/Bcc
+ *   3. Resolve every recipient to a claim login (single REST call via {@link resolveEmailsToLogins})
+ *   4. `ensureUser` fallback for any misses (one POST per missing recipient, sequential;
+ *      users unresolvable by SharePoint's People Picker remain in the unresolved list)
+ *   5. POST a single `SendEmail` request
+ *
+ * Cap: {@link MAX_RECIPIENTS_PER_CALL}. Larger audiences must be chunked by the
+ * caller -- one `sendEmail` call per chunk.
+ *
+ * @param args - See {@link SendEmailArgs}.
+ * @returns `{ ok: true, recipientCount }` on success. See {@link SendEmailResult}.
+ * @throws {SystemError}
+ *   - `'EmailValidation'`        (`breaksFlow=true`)  -- bad/missing args; programmer error.
+ *   - `'EmailTooManyRecipients'` (`breaksFlow=false`) -- count exceeds {@link MAX_RECIPIENTS_PER_CALL}.
+ *   - `'EmailInvalid'`           (`breaksFlow=false`) -- malformed addresses present.
+ *   - `'EmailUnresolved'`        (`breaksFlow=false`) -- recipients not in site UIL even after `ensureUser` fallback.
+ *   - `'EmailResolutionFailed'`  (`breaksFlow=false`) -- `siteUsers` query failed.
+ *   - `'EmailSendFailed'`        (`breaksFlow=false`) -- `SendEmail` POST rejected.
+ */
+declare function sendEmail({ to, cc, bcc, subject, body, from, }: SendEmailArgs): Promise<SendEmailResult>;
 
 /**
  * Options for SharePoint REST API request functions.
@@ -2554,7 +3582,8 @@ declare function spGET<T>(url: string, options: SPRequestOptions & {
 }): T;
 declare function spGET<T>(url: string, options?: SPRequestOptions): Promise<T>;
 /**
- * Sends a POST request to a SharePoint REST API endpoint for creating items.
+ * Sends a POST request to a SharePoint REST API endpoint for creating items
+ * AND for executing CAML queries (via `getitems`).
  *
  * The `options.data` object is automatically serialized via `JSON.stringify()`.
  * The `X-RequestDigest` header is auto-injected from the `#__REQUESTDIGEST`
@@ -2568,6 +3597,16 @@ declare function spGET<T>(url: string, options?: SPRequestOptions): Promise<T>;
  * Sets the following default AJAX settings (overridable via `options`):
  * - `async: true`
  * - `dataType: "json"`
+ *
+ * ## CAML query invariant (A2)
+ *
+ * SPARC's CAML query path (`ListApi._queryRequest`) overrides the default `accept`
+ * header to `application/json;odata=verbose` via `options.headers` so that
+ * `_normalizeCAMLResponse` can inspect the `d.results`/`d.ListItemCollectionPosition`
+ * envelope. Item creation uses the default `nometadata` accept header. Both paths
+ * share this single function -- do NOT change or remove the `Content-Type: odata=verbose`
+ * default without verifying that the CAML query path still receives the full verbose
+ * envelope it expects.
  *
  * @typeParam T - The expected shape of the response data.
  *
@@ -2756,127 +3795,10 @@ declare function startDigestTimer(): void;
  */
 declare function stopDigestTimer(): void;
 
-/**
- * @module RoleManager
- *
- * Provides the {@link RoleManager} class for list-based authorization.
- *
- * RoleManager loads a user's roles from a SharePoint list and provides
- * methods to check role membership and permission map access. Unlike
- * {@link CurrentUser}, RoleManager is NOT a singleton -- different apps
- * may use different list names or maintain multiple instances.
- *
- * **List structure:** The list stores one item per user, where:
- * - `Title` field contains the user's email address (used as lookup key)
- * - `Roles` field contains a JSON-serialized `string[]` (auto-parsed by ListApi)
- *
- * @example
- * ```ts
- * const roles = new RoleManager();
- * await roles.load('AppRoles');
- *
- * roles.hasRole('editor');                         // true/false
- * roles.hasAnyRole(['admin', 'editor']);            // true if user has either
- * roles.canAccess('reports', permissionMap);        // true if user's roles overlap
- * ```
- *
- * @see {@link CurrentUser} for the authenticated user singleton (must be initialized first).
- * @see {@link ListApi} for the underlying list query.
- */
-/**
- * Maps resource keys to arrays of role names that grant access.
- *
- * Use `'*'` in the role array to grant access to all users regardless of roles.
- *
- * @example
- * ```ts
- * const permissions: PermissionMap = {
- *   dashboard: ['*'],                    // everyone
- *   reports:   ['admin', 'analyst'],     // admin or analyst
- *   settings:  ['admin'],                // admin only
- * };
- * ```
- */
-interface PermissionMap {
-    [key: string]: string[];
-}
-/**
- * List-based authorization class that loads user roles from a SharePoint list
- * and provides role-checking and permission-map utilities.
- *
- * Not a singleton -- instantiate per list or per context as needed.
- *
- * @example
- * ```ts
- * // Basic usage
- * const roles = new RoleManager();
- * await roles.load();                  // defaults to 'UserRoles' list
- *
- * if (roles.hasRole('admin')) { ... }
- *
- * // Permission map usage
- * const map: PermissionMap = {
- *   editProject: ['admin', 'manager'],
- *   viewProject: ['*'],
- * };
- * if (roles.canAccess('editProject', map)) { ... }
- * ```
- */
-declare class RoleManager {
-    #private;
-    /**
-     * Loads the current user's roles from the specified SharePoint list.
-     *
-     * Queries the list by `Title` (which should contain the user's email).
-     * The `Roles` field is expected to be a JSON-serialized `string[]`,
-     * which ListApi auto-parses back to a native array.
-     *
-     * If no matching item is found, the instance has zero roles -- this is
-     * a valid state (no error thrown).
-     *
-     * @param listName - SharePoint list name to query. Defaults to `'UserRoles'`.
-     */
-    load(listName?: string): Promise<void>;
-    /**
-     * Returns `true` if the user has the exact specified role.
-     *
-     * @param role - Role name to check.
-     */
-    hasRole(role: string): boolean;
-    /**
-     * Returns `true` if the user has at least one of the specified roles.
-     *
-     * If `requiredRoles` contains `'*'`, returns `true` unconditionally
-     * (wildcard grants access to all users).
-     *
-     * @param requiredRoles - Array of role names. Include `'*'` for wildcard.
-     */
-    hasAnyRole(requiredRoles: string[]): boolean;
-    /**
-     * Checks whether the user can access a resource defined in a {@link PermissionMap}.
-     *
-     * Looks up the key in the map and delegates to {@link hasAnyRole}.
-     * Returns `false` if the key is not present in the map.
-     *
-     * @param key - Resource key to look up in the permission map.
-     * @param permissionMap - Map of resource keys to required role arrays.
-     */
-    canAccess(key: string, permissionMap: PermissionMap): boolean;
-    /**
-     * Returns a shallow copy of the loaded roles array.
-     * Returns an empty array if {@link load} has not been called.
-     */
-    get roles(): string[];
-    /**
-     * Whether {@link load} has completed successfully.
-     * Lets apps distinguish "not yet loaded" from "loaded with zero roles".
-     */
-    get isLoaded(): boolean;
-}
-
 interface ContextStoreEntry {
     value: unknown;
     createdAt: number;
+    expiresAt?: number;
 }
 /**
  * Cross-route key-value store that lives in the bundle's module scope.
@@ -2885,20 +3807,67 @@ interface ContextStoreEntry {
  *
  * Values with a `dispose()` method (e.g. FormField) are automatically disposed
  * when removed via `delete()` or `clear()`.
+ *
+ * ## Namespacing convention
+ *
+ * Use prefixed keys to namespace entries by route or feature, so they can be
+ * batch-deleted with `clearScope()` on unload:
+ *
+ *   `route:<routeName>:<key>`
+ *
+ * Examples:
+ *   `route:admin:userId`
+ *   `route:reports:filterField`
+ *
+ * In the route's `onCleanup` (or `remove()` override), call:
+ *   `ContextStore.clearScope('route:admin')`
+ * to dispose and remove all keys under that prefix.
  */
 declare class ContextStore {
     #private;
     private constructor();
-    static set<T>(key: string, value: T): void;
+    /**
+     * Store a value under `key`, optionally expiring it after `ttlMs` milliseconds.
+     *
+     * If `ttlMs` is omitted the entry never expires (original behavior).
+     * If a value already exists under `key` it is disposed before being overwritten.
+     */
+    static set<T>(key: string, value: T, ttlMs?: number): void;
     static get<T>(key: string): T;
     static get<T>(key: string, fallback: T): T;
     static has(key: string): boolean;
     static delete(key: string): boolean;
     static clear(): void;
+    /**
+     * Dispose and remove all entries whose key starts with `prefix`.
+     *
+     * Intended for route teardown -- pair with the `route:<name>:` namespacing
+     * convention to clean up all keys a route registered:
+     *
+     * ```ts
+     * config.onCleanup(() => ContextStore.clearScope('route:admin'));
+     * ```
+     *
+     * @returns The number of entries removed.
+     */
+    static clearScope(prefix: string): number;
     static get size(): number;
     static keys(): string[];
 }
 
+/**
+ * Aggregates a named set of {@link FormField} instances and orchestrates
+ * validation and data extraction across them.
+ *
+ * Validation is entirely app-supplied: each `FormField` carries an optional
+ * `validatorCallback` -- a plain function `(value: T) => boolean | Promise<boolean>`.
+ * The callback may use Zod, a hand-written predicate, or any other logic; that
+ * choice lives at the call site, not inside `FormSchema`.
+ *
+ * `FormSchema` itself does NOT hold, import, or require a Zod schema.
+ * It simply calls `field.validate()` / `field.validateAsync()` on every
+ * registered field and aggregates the results.
+ */
 declare class FormSchema<T extends Record<string, FormField<FormFieldType>>, K extends keyof T> {
     private _fields;
     constructor(fields: T);
@@ -2992,6 +3961,7 @@ declare const escapeAttr: typeof escapeHtml;
  * ```
  */
 declare function enforceStrictObject<T extends object>(obj: T): T;
+declare function isCallable(arg: unknown): arg is Function | (object & Record<"call", unknown>);
 
 declare function copyToClipboard(text: string): Promise<boolean>;
 
@@ -3012,6 +3982,9 @@ interface TabConfig<K extends string> {
 /**
  * TabGroup component that combines tab navigation with view switching.
  * Uses ViewSwitcher internally to manage view transitions.
+ *
+ * Navigation (nextTab/previousTab) delegates to ViewSwitcher.next()/previous()
+ * so wrap-around logic lives in a single place.
  */
 declare class TabGroup<K extends string> extends Container {
     private _viewSwitcher;
@@ -3024,10 +3997,11 @@ declare class TabGroup<K extends string> extends Container {
     toString(): string;
     render(): void;
     private _updateActiveTab;
-    private _onTabClickListeners;
     protected _applyEventListeners(): void;
+    private _onTabClickListeners;
     /**
-     * Switch to a specific tab by key
+     * Switch to a specific tab by key.
+     * The nav highlight update is handled by onRefreshHandler (fires inside setView).
      */
     setTab(tabKey: K): void;
     /**
@@ -3035,11 +4009,17 @@ declare class TabGroup<K extends string> extends Container {
      */
     setTabByIndex(index: number): void;
     /**
-     * Navigate to the next tab (wraps around)
+     * Navigate to the next tab (wraps around).
+     * Delegates to ViewSwitcher.next() -- wrap logic and animation sequencing
+     * live in ViewSwitcher (single source of truth). The nav highlight update
+     * fires via the shared onRefreshHandler callback.
      */
     nextTab(): void;
     /**
-     * Navigate to the previous tab (wraps around)
+     * Navigate to the previous tab (wraps around).
+     * Delegates to ViewSwitcher.previous() -- wrap logic and animation sequencing
+     * live in ViewSwitcher (single source of truth). The nav highlight update
+     * fires via the shared onRefreshHandler callback.
      */
     previousTab(): void;
     /**
@@ -3060,72 +4040,6 @@ declare class TabGroup<K extends string> extends Container {
     get currentView(): View;
 }
 
-type FieldLabelPosition = 'left' | 'top' | 'right' | 'bottom';
-interface FieldLabelProps extends HTMDElementProps {
-    /**
-     * Position of the label relative to the wrapped component
-     * @default 'top'
-     */
-    position?: FieldLabelPosition;
-    /**
-     * Tooltip text to display on hover
-     */
-    tooltip?: string;
-}
-/**
- * FieldLabel component that wraps any HTMDElement with a label.
- * Provides flexible positioning and optional tooltip functionality.
- *
- * @example
- * ```typescript
- * const input = new TextInput('', { placeholder: 'Enter your name' });
- * const field = new FieldLabel('Full Name', input, {
- *   position: 'top',
- *   tooltip: 'Please enter your full legal name'
- * });
- * field.render();
- * ```
- */
-declare class FieldLabel extends HTMDElement {
-    private _labelText;
-    private _position;
-    private _tooltip?;
-    private _componentId?;
-    constructor(labelText: string, component: HTMDElement, props?: FieldLabelProps);
-    get [Symbol.toStringTag](): string;
-    get modifierClasses(): string;
-    /**
-     * Generates the label HTML with optional tooltip
-     */
-    private _createLabel;
-    toString(): string;
-    render(): void;
-    /**
-     * Updates the label text
-     */
-    set label(text: string);
-    /**
-     * Updates the tooltip text
-     */
-    set tooltip(tooltip: string | undefined);
-    /**
-     * Updates the position of the label
-     */
-    set position(position: FieldLabelPosition);
-    /**
-     * Gets the label text
-     */
-    get label(): string;
-    /**
-     * Gets the current position
-     */
-    get position(): FieldLabelPosition;
-    /**
-     * Gets the tooltip text
-     */
-    get tooltip(): string | undefined;
-}
-
 declare global {
     interface Window {
         $: typeof $;
@@ -3134,5 +4048,5 @@ declare global {
     }
 }
 
-export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, Modal, NavigationEvent, NumberInput, PeoplePicker, RoleManager, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isComboBoxOption, listIcons, pageReset, refreshRequestDigest, registerIcons, resolvePath, sanitizeQuery, searchUsers, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
-export type { AccordionGroupProps, AccordionItemProps, BuiltInIconName, ButtonProps, CAMLCondition, CAMLOperator, CAMLOrderByField, CAMLQueryObject, CAMLQueryResponse, CAMLValueOperator, CardProps, CardVariants, ChildrenOptions, ComboBoxDataset, ComboBoxOptionProps, ComboBoxProps, ContainerProps, ContainerTags, ContextStoreEntry, CreateFieldOptions, CreateListOptions, DATE_FORMATS, DateInputProps, DateRangeInputProps, DateRangeRules, DialogProps, DialogVariants, ErrorBoundaryProps, ErrorOptions, FieldLabelPosition, FieldLabelProps, FormControlProps, FormFieldProps, FormFieldType, FragmentProps, FullUserDetails, GetItemsOptions, GetItemsPagedOptions, GroupHierarchyEntry, HTMDElementInterface, HTMDElementProps, HTMDNode, HTMDSingleNode, IconName, IconSource, ImageProps, InitializeOptions, LinkButtonProps, ListApiOptions, ListProps, LoaderProps, ModalProps, NavigationGuardFn, NavigationOptions, NumberInputProps, PaginatedResult, PeoplePickerProps, PeopleSearchOptions, PeopleSearchResult, PeopleSearchResultData, PermissionMap, ProfileProperty, RouteConfig, RouteOptions, RoutePaths, RouterProps, RuntimeEventListenerOptions, RuntimeEventOptions, SPCollectionResponse, SPField, SPFieldValue, SPGroup, SPItemWithETag, SPList, SPRequestOptions, SPSimpleValue, SPUser, SPWeb, SidePanelProps, StyleResourceOptions, TabConfig, TabGroupProps, TextAreaProps, TextInputProps, TextProps, ToastLoadingController, ToastOptions, ToastPromiseMessages, ToastType, Unsubscribe, UserIdentityProperties, UserProfile, UserProfilePayload, ViewProps, ViewSwitcherProps, pageResetOptions };
+export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
+export type { AccordionGroupProps, AccordionItemProps, AugmentedSystemError, BuiltInIconName, ButtonProps, CAMLCondition, CAMLOperator, CAMLOrderByField, CAMLQueryObject, CAMLQueryResponse, CAMLValueOperator, CardProps, CardVariants, ChildrenOptions, ComboBoxDataset, ComboBoxOptionProps, ComboBoxProps, ContainerProps, ContainerTags, ContextStoreEntry, CreateFieldOptions, CreateListOptions, DATE_FORMATS, DateInputProps, DateRangeInputProps, DateRangeRules, DebouncedInputProps, DialogProps, DialogVariants, ErrorBoundaryProps, ErrorOptions, FieldLabelPosition, FieldLabelProps, FormControlProps, FormFieldProps, FormFieldType, FragmentProps, FullUserDetails, GetItemsOptions, GetItemsPagedOptions, GroupHierarchyEntry, HTMDElementInterface, HTMDElementProps, HTMDNode, HTMDSingleNode, IconName, IconSource, ImageProps, InitializeOptions, LabelTargetProvider, LinkButtonProps, ListApiOptions, ListProps, LoaderProps, ModalProps, NavigationGuardFn, NavigationOptions, NumberInputProps, PaginatedResult, PeoplePickerProps, PeopleSearchOptions, PeopleSearchResult, PeopleSearchResultData, ProfileProperty, ResolveEmailsResult, RouteConfig, RouteOptions, RoutePaths, RouterProps, RuntimeEventListenerOptions, RuntimeEventOptions, SPCollectionResponse, SPField, SPFieldValue, SPGroup, SPItemWithETag, SPList, SPRequestOptions, SPSimpleValue, SPUser, SPWeb, SendEmailArgs, SendEmailResult, SidePanelProps, SiteUserRow, StyleResourceOptions, TabConfig, TabGroupProps, TextAreaProps, TextInputProps, TextProps, ToastLoadingController, ToastOptions, ToastPromiseMessages, ToastType, UUID, Unsubscribe, UserIdentityProperties, UserProfile, UserProfilePayload, ViewProps, ViewSwitcherProps, __INTERNAL_DEBUG_OPTIONS, pageResetOptions };

@@ -1,5 +1,5 @@
 import {
-  defineRoute, TabGroup, View, Container, Text, LinkButton, Card, SiteApi, Router, SystemError, CurrentUser
+  defineRoute, TabGroup, View, Container, Text, SiteApi, Router, SystemError, CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_PROJECTS, LIST_PROJECT_UPDATES, LIST_PROGRAMS, LIST_ALLOCATIONS, LIST_PROJECT_ACCESS } from '../../../utils/constants.js'
 import { createDeleteAction, splitUuids } from '../../../utils/delete-entity.js'
@@ -12,9 +12,22 @@ import { createAccessTab } from '../utils/access-tab.js'
 import { createCapacityTab } from '../utils/capacity-tab.js'
 import { statusClass } from '../../../utils/project-card.js'
 import { resolveEffectiveRole, filterProjectsByAccess, fetchAllDelegations, fetchUserScopes, canPerformAction } from '../../../utils/access-control.js'
+import { buildUmbrellaOptions } from '../../../utils/umbrella.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
 
 export default defineRoute(async (config) => {
+  /**
+   * Returns two-letter initials for a display name or email.
+   * @param {string} name
+   * @returns {string}
+   */
+  function initials(name) {
+    if (!name) return '?'
+    const parts = name.trim().split(/\s+/)
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    return name.slice(0, 2).toUpperCase()
+  }
+
   const siteApi = new SiteApi()
   const uuid = Router.queryParams.get('uuid')
 
@@ -22,8 +35,7 @@ export default defineRoute(async (config) => {
     throw new SystemError('MissingUUID', 'No project UUID provided in query params')
   }
 
-  // Fetch project, updates, programs, definitions, delegations, and user scopes in parallel
-  let [projects, updates, programs, defs, scopeItems, delegations, allocations, pmGroupMembers, userScopes] = await Promise.all([
+  let [projects, updates, programs, defs, scopeItems, delegations, allocations, pmGroupMembers, userScopes, allProjectsList] = await Promise.all([
     siteApi.list(LIST_PROJECTS).getItemByUUID(uuid),
     siteApi.list(LIST_PROJECT_UPDATES).getItems({ ProjectUUID: uuid }),
     siteApi.list(LIST_PROGRAMS).getItems(),
@@ -33,6 +45,7 @@ export default defineRoute(async (config) => {
     siteApi.list(LIST_ALLOCATIONS).getItems({ ProjectUUID: uuid }),
     siteApi.getGroupUsers('ProjectManagers'),
     fetchUserScopes(siteApi, new CurrentUser().get('email')),
+    siteApi.list(LIST_PROJECTS).getItems(),
   ])
 
   const pmMemberOptions = pmGroupMembers.map(m => ({
@@ -45,7 +58,6 @@ export default defineRoute(async (config) => {
     throw new SystemError('ProjectNotFound', `No project found for UUID: ${uuid}`)
   }
 
-  // Resolve effective role and gate access
   const user = new CurrentUser()
   const projectDelegations = delegations.filter(d => d.ProjectUUID === uuid)
   const effectiveRole = resolveEffectiveRole(project, user.get('email'), user.accessLevel, projectDelegations, userScopes)
@@ -54,18 +66,11 @@ export default defineRoute(async (config) => {
     throw new SystemError('AccessDenied', 'You do not have access to this project', { breaksFlow: true })
   }
 
-  // Build umbrella options from programs and accessible projects only
-  const allProjectsList = await siteApi.list(LIST_PROJECTS).getItems()
   const accessibleProjects = filterProjectsByAccess(allProjectsList, user.get('email'), user.accessLevel, delegations, userScopes)
-  const umbrellaOptions = [
-    ...programs.map(p => ({ label: '[Program] ' + p.Title, value: p.UUID })),
-    ...accessibleProjects.map(p => ({ label: '[Project] ' + p.Title, value: p.UUID }))
-  ]
+  const umbrellaOptions = await buildUmbrellaOptions(siteApi, user, { excludeUuid: uuid })
 
-  // Dynamic page title from project name
   config.setRouteTitle(project.Title)
 
-  // Dynamic definitions with hardcoded fallbacks
   const projectTypes = defs.get('ProjectTypes')
   const techProjects = defs.get('TechProjects')
   const techPhases = defs.get('TechPhases')
@@ -76,20 +81,31 @@ export default defineRoute(async (config) => {
   const pmScopeOptions = getScopeOptions(scopeItems)
 
   // ------------------------------------------------------------------
-  // Project Log
+  // Project Log (3a)
   // ------------------------------------------------------------------
 
-  const { view: updatesTab, dialog: newUpdateDialog, closeDialog } = createUpdatesTab({ project, updates, siteApi, uuid, effectiveRole })
+  // Record-header status pill (reactively updated on close via onStatusChange)
+  const statusPill = new Text(project.Status || '', {
+    type: 'span',
+    class: `app-status-badge ${statusClass(project.Status)}`
+  })
+
+  const { view: updatesTab, dialog: newUpdateDialog, closeDialog } = createUpdatesTab({
+    project, updates, siteApi, uuid, effectiveRole,
+    onStatusChange: (s) => {
+      statusPill.class = `app-status-badge ${statusClass(s)}`
+      statusPill.children = [s]
+    }
+  })
 
   // ------------------------------------------------------------------
-  // Tab 5: Edit (locked preview)
+  // Edit tab + Delete action (3b)
   // ------------------------------------------------------------------
 
-  // Gate: build delete action only for owners and managers
   let deleteDialog = null
   let deleteTriggerBtn = null
 
-  if (effectiveRole === 'owner' || effectiveRole === 'manager') {
+  if (effectiveRole === 'owner') {
     const childUpdates = updates
     const childAccess = projectDelegations
     const childAllocs = allocations
@@ -109,10 +125,10 @@ export default defineRoute(async (config) => {
 
     const { triggerButton, dialog } = createDeleteAction({
       triggerLabel: 'Delete Project',
-      dialogTitle: 'Delete Project',
-      message: `Delete "${project.Title}"?`,
+      dialogTitle: `Delete "${project.Title}"`,
+      message: `Delete "${project.Title}"? This project and all its data will be permanently removed.`,
       warning: warningText,
-      confirmLabel: 'Delete Project',
+      confirmLabel: 'Delete project',
       loadingText: 'Deleting project...',
       successText: 'Project deleted',
       errorText: 'Failed to delete project',
@@ -139,13 +155,16 @@ export default defineRoute(async (config) => {
     deleteTriggerBtn = triggerButton
   }
 
-  const editTab = createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions, deleteButton: deleteTriggerBtn })
+  const editTab = createEditTab({
+    project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses,
+    businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions,
+    allocations, pmScopeOptions, deleteButton: deleteTriggerBtn
+  })
 
   // ------------------------------------------------------------------
-  // Tab 6: Umbrella View (D3 tree visualization)
+  // Umbrella View (3c)
   // ------------------------------------------------------------------
 
-  // Tag all nodes with _type for the tree builder
   const taggedPrograms = programs.map(p => ({ ...p, _type: 'program' }))
   const taggedProjects = accessibleProjects.map(p => ({ ...p, _type: 'project' }))
   const allNodes = [...taggedPrograms, ...taggedProjects]
@@ -155,34 +174,54 @@ export default defineRoute(async (config) => {
   const treeMountContainer = new Container([], { class: 'app-tree-mount', id: treeMountId })
   let treeCleanup = null
 
+  // Legend (Program = wash chip, Project = white chip)
+  const treeLegend = new Container([
+    new Container([
+      new Text('', { type: 'span', class: 'app-tree-legend__dot app-tree-legend__dot--program' }),
+      new Text('Program', { type: 'span', class: 'app-tree-legend__label' })
+    ], { class: 'app-tree-legend__item' }),
+    new Container([
+      new Text('', { type: 'span', class: 'app-tree-legend__dot app-tree-legend__dot--project' }),
+      new Text('Project', { type: 'span', class: 'app-tree-legend__label' })
+    ], { class: 'app-tree-legend__item' })
+  ], { class: 'app-tree-legend' })
+
   const umbrellaTab = new View([
     new Container([
-      new Text('Umbrella Structure', { type: 'h3', class: 'app-section-heading' }),
-      new Text('Click a node to navigate to it.', { type: 'p', class: 'app-tree-hint' }),
-      treeMountContainer
-    ], { class: 'app-umbrella-panel' })
+      new Container([
+        new Container([
+          new Text('Umbrella structure', { type: 'h3', class: 'app-section-card__heading' }),
+          treeLegend
+        ], { class: 'app-section-card__heading-row app-section-card__heading-row--spaced' }),
+        new Text('Click a node to navigate to it. This project is highlighted.', {
+          type: 'p',
+          class: 'app-tree-hint'
+        }),
+        treeMountContainer
+      ], { class: 'app-section-card app-umbrella-panel' })
+    ])
   ])
 
   // ------------------------------------------------------------------
-  // Tab 7: Access
+  // Access (3d)
   // ------------------------------------------------------------------
 
   const accessTab = createAccessTab({ project, siteApi, uuid, effectiveRole, delegations: projectDelegations })
 
   // ------------------------------------------------------------------
-  // Capacity Tab
+  // Capacity (3e)
   // ------------------------------------------------------------------
 
   const capacityTab = createCapacityTab({ project, siteApi, uuid, allocations })
 
   // ------------------------------------------------------------------
-  // Tab 1: Overview (KPIs + read-only fields)
+  // Overview (1c)
   // ------------------------------------------------------------------
 
   const overviewTab = createOverviewTab({ project, updates })
 
   // ------------------------------------------------------------------
-  // TabGroup
+  // TabGroup — fires tree render on umbrella tab activation
   // ------------------------------------------------------------------
 
   const tabGroup = new TabGroup(
@@ -221,74 +260,141 @@ export default defineRoute(async (config) => {
   )
 
   // ------------------------------------------------------------------
-  // Sidebar (read-only metadata)
+  // Left sidebar (1c): plain card, 280px
+  // Context, Objectives, People list (PM + Sponsor + Stakeholders),
+  // then 2x2 meta grid (Business line, Project type, Tech, GDPR)
   // ------------------------------------------------------------------
 
-  function metadataRow(label, value) {
-    return new Container([
-      new Text(label, { type: 'span', class: 'app-detail-label' }),
-      new Text(value || '--', {
-        type: 'span',
-        class: value ? 'app-detail-value' : 'app-detail-value app-detail-value--empty'
-      })
-    ], { class: 'app-detail-row' })
+  function sidebarDivider() {
+    return new Text('', { type: 'hr', class: 'app-sidebar-divider' })
   }
 
+  function sidebarField(label, value) {
+    const isEmpty = !value
+    return new Container([
+      new Text(label, { type: 'span', class: 'app-overline app-sidebar-field__label' }),
+      new Text(isEmpty ? '' : value, {
+        type: 'p',
+        class: isEmpty ? 'app-sidebar-field__value app-sidebar-field__value--empty' : 'app-sidebar-field__value'
+      })
+    ], { class: 'app-sidebar-field' })
+  }
+
+  // Build a person row: 28px avatar + name / role
+  function personRow(displayName, role, isPm) {
+    const avatarClass = isPm ? 'app-avatar app-avatar--wash' : 'app-avatar app-avatar--neutral'
+    return new Container([
+      new Container([
+        new Text(initials(displayName), { type: 'span', class: 'app-avatar__initials' })
+      ], { class: avatarClass }),
+      new Container([
+        new Text(displayName, { type: 'span', class: 'app-people-row__name' }),
+        new Text(role, { type: 'span', class: 'app-people-row__role' })
+      ], { class: 'app-people-row__text' })
+    ], { class: 'app-people-row' })
+  }
+
+  // Collect people for the People list
+  function resolveDisplayName(raw) {
+    if (!raw) return null
+    if (typeof raw === 'object' && raw !== null) {
+      return raw.displayName || raw.email || null
+    }
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && parsed.displayName) return parsed.displayName
+      } catch (err) { console.warn('[ProjectDetail] resolveDisplayName: value not JSON, using raw string', err) }
+      return raw
+    }
+    return null
+  }
+
+  const peopleRows = []
+
+  const pmName = resolveDisplayName(project.ProjectManager)
+  if (pmName) peopleRows.push(personRow(pmName, 'Project manager', true))
+
+  const sponsorName = resolveDisplayName(project.Sponsor)
+  if (sponsorName) peopleRows.push(personRow(sponsorName, 'Sponsor', false))
+
+  // Stakeholders: array of UserIdentity
+  const stakeholders = Array.isArray(project.Stakeholders) ? project.Stakeholders : []
+  stakeholders.forEach(s => {
+    const name = resolveDisplayName(s)
+    if (name) peopleRows.push(personRow(name, 'Stakeholder', false))
+  })
+
+  const peopleSection = new Container([
+    new Text('People', { type: 'span', class: 'app-overline app-sidebar-field__label' }),
+    new Container(
+      peopleRows.length > 0 ? peopleRows : [new Text('No people assigned.', { type: 'p', class: 'app-sidebar-field__value app-sidebar-field__value--empty' })],
+      { class: 'app-people-list' }
+    )
+  ], { class: 'app-sidebar-field' })
+
+  // 2x2 meta grid
   const projectTypeDisplay = (() => {
     const base = project.ProjectType || ''
     if (base !== 'Tech') return base
-    const parts = [base, project.TechProject, project.TechPhase].filter(Boolean)
-    return parts.join(' / ')
+    const parts = [project.TechProject, project.TechPhase].filter(Boolean)
+    return parts.length ? `${base} / ${parts.join(' / ')}` : base
   })()
 
-  function personBadgeRow(label, raw) {
-    const people = Array.isArray(raw)
-      ? raw.map(p => p.displayName || p.email || String(p))
-      : typeof raw === 'object' && raw !== null
-        ? [raw.displayName || raw.email || String(raw)]
-        : (String(raw || '')).split(';').map(s => s.trim()).filter(Boolean)
-    const badges = people.length
-      ? people.map(name => new Text(name, { type: 'span', class: 'app-multi-person-item' }))
-      : [new Text('--', { type: 'span', class: 'app-detail-value app-detail-value--empty' })]
-    return new Container([
-      new Text(label, { type: 'span', class: 'app-detail-label' }),
-      new Container(badges, { class: 'app-sidebar-badge-list' })
-    ], { class: 'app-detail-row' })
-  }
+  const techLine = (project.ProjectType === 'Tech' && (project.TechProject || project.TechPhase))
+    ? [project.TechProject, project.TechPhase].filter(Boolean).join(' / ')
+    : null
 
-  const sidebarRows = [
-    metadataRow('Context', project.Context),
-    metadataRow('Objectives', project.Objectives),
-    personBadgeRow('Sponsor', project.Sponsor),
-    metadataRow('Business Line', project.BusinessLine),
-    personBadgeRow('Stakeholders', project.Stakeholders),
-    new Text('', { type: 'hr', class: 'app-sidebar-divider' }),
-    personBadgeRow('Project Manager', project.ProjectManager),
-    metadataRow('Project Type', projectTypeDisplay),
-    project.ProjectType === 'Tech'
-      ? metadataRow('Tech Project', [project.TechProject, project.TechPhase].filter(Boolean).join(' / '))
-      : null,
-    metadataRow('GDPR', project.GDPRClassification),
-  ].filter(Boolean)
-
-  const sidebar = new Container(sidebarRows, { class: 'app-dashboard-sidebar' })
-
-  const layoutContainer = new Container([sidebar, tabGroup], { class: 'app-dashboard-layout' })
-
-  // ------------------------------------------------------------------
-  // Page Header
-  // ------------------------------------------------------------------
-
-  const pageHeader = new Card([
+  const metaGrid = new Container([
     new Container([
-      new Text(project.Title, { type: 'h2' }),
-      new Text(project.Status || '', { type: 'span', class: statusClass(project.Status) }),
+      new Text('Business line', { type: 'span', class: 'app-overline' }),
+      new Text(project.BusinessLine || '—', { type: 'span', class: 'app-meta-grid__value' })
+    ], { class: 'app-meta-grid__cell' }),
+    new Container([
+      new Text('Project type', { type: 'span', class: 'app-overline' }),
+      new Text(project.ProjectType || '—', { type: 'span', class: 'app-meta-grid__value' })
+    ], { class: 'app-meta-grid__cell' }),
+    new Container([
+      new Text('Tech project', { type: 'span', class: 'app-overline' }),
+      new Text(techLine || '—', { type: 'span', class: 'app-meta-grid__value' })
+    ], { class: 'app-meta-grid__cell' }),
+    new Container([
+      new Text('GDPR', { type: 'span', class: 'app-overline' }),
+      new Text(project.GDPRClassification || '—', { type: 'span', class: 'app-meta-grid__value' })
+    ], { class: 'app-meta-grid__cell' })
+  ], { class: 'app-meta-grid' })
+
+  const sidebar = new Container([
+    sidebarField('Context', project.Context),
+    sidebarDivider(),
+    sidebarField('Objectives', project.Objectives),
+    sidebarDivider(),
+    peopleSection,
+    sidebarDivider(),
+    metaGrid
+  ], { class: 'app-project-sidebar' })
+
+  // ------------------------------------------------------------------
+  // Detail body grid (280px sidebar + tab content)
+  // ------------------------------------------------------------------
+
+  const detailBody = new Container([sidebar, tabGroup], { class: 'app-project-detail-body' })
+
+  // ------------------------------------------------------------------
+  // Record header (app-record-header pattern)
+  // title row + status pill + UUID meta + TabGroup tab row
+  // ------------------------------------------------------------------
+
+  const recordHeader = new Container([
+    new Container([
+      new Text(project.Title, { type: 'h1', class: 'app-record-header__title' }),
+      statusPill,
       project.Validated === 'true'
         ? new Text('Validated', { type: 'span', class: 'app-status-badge app-validated-badge' })
         : null
-    ], { class: 'app-detail-title' }),
-    new LinkButton('Back to Home', '/', { variant: 'secondary' })
-  ], { class: 'app-detail-header app-detail-header-card' })
+    ].filter(Boolean), { class: 'app-record-header__title-row' }),
+    new Text(project.UUID || '', { type: 'span', class: 'app-record-header__meta' })
+  ], { class: 'app-record-header' })
 
-  return [pageHeader, layoutContainer, newUpdateDialog, ...(closeDialog ? [closeDialog] : []), ...(deleteDialog ? [deleteDialog] : [])]
+  return [recordHeader, detailBody, newUpdateDialog, ...(closeDialog ? [closeDialog] : []), ...(deleteDialog ? [deleteDialog] : [])]
 })

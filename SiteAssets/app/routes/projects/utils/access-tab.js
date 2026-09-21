@@ -1,14 +1,26 @@
 import {
   View, Container, Text, Button, ComboBox, PeoplePicker,
-  FormField, Toast, CurrentUser
+  FormField, Toast, Dialog, CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { ACCESS_LEVELS, ACCESS_TYPES, LIST_PROJECT_ACCESS, LIST_PROJECTS } from '../../../utils/constants.js'
 import { canPerformAction } from '../../../utils/access-control.js'
 import { createLabeledField, createFormSection, createFormRow, comboValue } from '../../../utils/form-helpers.js'
 
 /**
+ * Returns the two-letter initials for a display name or email string.
+ * @param {string} name
+ * @returns {string}
+ */
+function initials(name) {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return name.slice(0, 2).toUpperCase()
+}
+
+/**
  * Creates the Access tab for the project detail page.
- * Manages access level and delegation records.
+ * Redesigned per 3d spec: three stacked left-accent cards with proper table layout.
  *
  * @param {{ project: object, siteApi: object, uuid: string, effectiveRole: string, delegations: object[] }} params
  * @returns {View}
@@ -21,27 +33,65 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
   const canDelegate = canPerformAction(effectiveRole, 'delegate')
   const canChangeAccess = canPerformAction(effectiveRole, 'changeAccessLevel')
 
+  // Human-readable labels for stored access level tokens
+  const ACCESS_LEVEL_LABELS = {
+    NoRestriction: 'Open — no restriction',
+    Internal: 'Internal only',
+    Confidential: 'Confidential',
+  }
+
+  // Accurate per-level descriptions (see .claude/rules/access-control.md).
+  const ACCESS_LEVEL_DESCRIPTIONS = {
+    NoRestriction: 'Open to everyone — unless a PM scope is set, in which case only that scope\'s members (plus project members and delegated users) can open it.',
+    Internal: 'Restricted — only admins, project members, and explicitly delegated users can open it. PM scope membership does not grant access.',
+    Confidential: 'Confidential — only admins, project members, and explicitly delegated users can view it.',
+  }
+
   // -------------------------------------------------------------------
-  // Access Level Section
+  // Card 1: Access Level
   // -------------------------------------------------------------------
 
-  function buildAccessLevelSection() {
-    if (project.AccessLevel === 'Confidential') {
-      return createFormSection('Access Level', [
-        new Text('Confidential (permanent)', { type: 'p' })
-      ])
-    }
+  function buildAccessLevelCard() {
+    const levelValue = project.AccessLevel || 'NoRestriction'
+    const isPermanent = levelValue === 'Confidential'
+    const levelLabel = ACCESS_LEVEL_LABELS[levelValue] || levelValue
 
-    if (!canChangeAccess) {
-      return createFormSection('Access Level', [
-        new Text(project.AccessLevel || 'NoRestriction', { type: 'p' })
-      ])
-    }
+    const levelDisplay = new Text(levelLabel, { type: 'span', class: 'app-access-level__value' })
 
-    // Editable: ComboBox with filtered levels (no Confidential)
+    const permanentPill = isPermanent
+      ? new Text('Permanent', { type: 'span', class: 'app-access-level__permanent-pill' })
+      : null
+
+    const description = new Text(
+      ACCESS_LEVEL_DESCRIPTIONS[levelValue] || ACCESS_LEVEL_DESCRIPTIONS.NoRestriction,
+      { type: 'p', class: 'app-access-level__desc' }
+    )
+
+    const changeBtn = canChangeAccess && !isPermanent
+      ? buildChangeAccessBtn(levelValue)
+      : null
+
+    const topRow = new Container([
+      new Container([
+        levelDisplay,
+        ...(permanentPill ? [permanentPill] : [])
+      ], { class: 'app-access-level__level-row' }),
+      description,
+      ...(changeBtn ? [changeBtn] : [])
+    ], { class: 'app-access-level__body' })
+
+    return new Container([
+      new Container([
+        new Text('Access Level', { type: 'h3', class: 'app-form-section__heading' })
+      ], { class: 'app-form-section__heading-row' }),
+      topRow
+    ], { class: 'app-form-section' })
+  }
+
+  function buildChangeAccessBtn(currentLevel) {
     const filteredLevels = ACCESS_LEVELS.filter(l => l !== 'Confidential')
     const accessLevelField = new FormField({
-      value: { label: project.AccessLevel || 'NoRestriction', value: project.AccessLevel || 'NoRestriction' }
+      value: { label: currentLevel, value: currentLevel }
     })
     const accessLevelCombo = new ComboBox(accessLevelField, filteredLevels, {
       allowFiltering: false,
@@ -50,6 +100,7 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
 
     const saveAccessBtn = new Button('Save Access Level', {
       variant: 'primary',
+      class: 'app-btn-primary app-btn-primary--card',
       onClickHandler: async () => {
         saveAccessBtn.isLoading = true
         const loading = Toast.loading('Saving access level...')
@@ -59,79 +110,164 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
             { AccessLevel: comboValue(accessLevelField.value) },
             project['odata.etag']
           )
-          // MERGE returns no etag; re-fetch so a second save uses a fresh one
           const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(uuid)
           if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
           loading.success('Access level saved')
-        } catch {
+        } catch (err) {
+          console.error('[AccessTab] save access level:', err)
           loading.error('Failed to save access level')
         } finally {
-          saveAccessBtn.isLoading = false
+          if (saveAccessBtn.isAlive) saveAccessBtn.isLoading = false
         }
       }
     })
 
-    return createFormSection('Access Level', [
-      createFormRow([
-        createLabeledField('Level', accessLevelCombo),
-      ]),
+    return new Container([
+      createLabeledField('Level', accessLevelCombo),
       new Container([saveAccessBtn], { class: 'app-form-actions' })
-    ])
+    ], { class: 'app-access-level__change' })
   }
 
   // -------------------------------------------------------------------
-  // Delegation List
+  // Card 2: Delegations table
   // -------------------------------------------------------------------
 
   let currentDelegations = [...delegations]
-  const delegationListContainer = new Container([], { class: 'app-delegation-list' })
+  const delegationTableBody = new Container([], { class: 'app-delegation-table__body' })
+  const delegationCountText = new Text(
+    `${currentDelegations.length} ${currentDelegations.length === 1 ? 'person' : 'people'}`,
+    { type: 'span', class: 'app-section-card__meta' }
+  )
 
-  function buildDelegationRow(d) {
-    const children = [
-      new Text(d.UserDisplayName || d.UserEmail, { type: 'span', class: 'app-delegation-user' }),
-      new Text(d.AccessType, { type: 'span', class: 'app-access-type-badge' })
-    ]
+  function buildDelegationRow(d, rowIndex) {
+    const nameStr = d.UserDisplayName || d.UserEmail || ''
+    const emailStr = d.UserEmail || ''
+    const grantedDate = d.Created
+      ? (typeof d.Created === 'string' ? d.Created.split('T')[0] : '')
+      : ''
 
-    if (canDelegate) {
-      const removeBtn = new Button('Remove', {
-        variant: 'text',
-        onClickHandler: async () => {
-          removeBtn.isLoading = true
-          try {
-            await siteApi.list(LIST_PROJECT_ACCESS).deleteItem(d.Id, d['odata.etag'])
-            currentDelegations = currentDelegations.filter(item => item.Id !== d.Id)
-            renderDelegationList()
-            Toast.success('Delegation removed')
-          } catch {
-            Toast.error('Failed to remove delegation')
-          } finally {
-            removeBtn.isLoading = false
-          }
-        }
-      })
-      children.push(removeBtn)
-    }
+    const avatarCell = new Container([
+      new Container([
+        new Text(initials(nameStr), { type: 'span', class: 'app-avatar__initials' })
+      ], { class: 'app-avatar app-avatar--wash' }),
+      new Container([
+        new Text(nameStr, { type: 'span', class: 'app-delegation-row__name' }),
+        new Text(emailStr, { type: 'span', class: 'app-delegation-row__email' })
+      ], { class: 'app-delegation-row__person-text' })
+    ], { class: 'app-delegation-row__person app-table-cell' })
 
-    return new Container(children, { class: 'app-delegation-row' })
+    const accessTypeCell = new Container([
+      new Text(d.AccessType || '', { type: 'span' })
+    ], { class: 'app-table-cell app-delegation-row__access-type' })
+
+    const grantedCell = new Container([
+      new Text(grantedDate, { type: 'span', class: 'app-delegation-row__granted' })
+    ], { class: 'app-table-cell app-delegation-row__granted-cell' })
+
+    const actionCell = canDelegate
+      ? buildRemoveDelegationCell(d)
+      : new Container([], { class: 'app-table-cell' })
+
+    const rowClass = rowIndex % 2 === 0
+      ? 'app-table-row app-delegation-table__row'
+      : 'app-table-row app-delegation-table__row app-table-row--alt'
+
+    return new Container([avatarCell, accessTypeCell, grantedCell, actionCell], { class: rowClass })
   }
 
-  function renderDelegationList() {
+  function buildRemoveDelegationCell(d) {
+    const nameForDialog = d.UserDisplayName || d.UserEmail || 'this person'
+
+    const doRemoveBtn = new Button('Remove', {
+      variant: 'danger',
+      class: 'app-btn-danger-solid',
+      onClickHandler: async () => {
+        doRemoveBtn.isLoading = true
+        const loading = Toast.loading('Removing access...')
+        try {
+          await siteApi.list(LIST_PROJECT_ACCESS).deleteItem(d.Id, d['odata.etag'])
+          currentDelegations = currentDelegations.filter(item => item.Id !== d.Id)
+          confirmDialog.close()
+          renderDelegationTable()
+          loading.success(`Access removed for ${nameForDialog}`)
+        } catch (err) {
+          console.error('[AccessTab] remove delegation:', err)
+          loading.error('Failed to remove delegation')
+        } finally {
+          if (doRemoveBtn.isAlive) doRemoveBtn.isLoading = false
+        }
+      }
+    })
+
+    const cancelRemoveBtn = new Button('Cancel', {
+      variant: 'secondary',
+      class: 'app-btn-secondary',
+      onClickHandler: () => confirmDialog.close()
+    })
+
+    const confirmDialog = new Dialog({
+      closeOnFocusLoss: false,
+      class: 'app-modal-shell app-modal-shell--danger',
+      title: `Remove access for ${nameForDialog}?`,
+      content: [
+        new Text(
+          `This will permanently remove ${nameForDialog}'s delegated access to this project. This action cannot be undone.`,
+          { type: 'p' }
+        ),
+        new Container([cancelRemoveBtn, doRemoveBtn], { class: 'app-modal-actions' })
+      ]
+    })
+    confirmDialog.render()
+
+    const triggerBtn = new Button('Remove', {
+      variant: 'secondary',
+      class: 'app-btn-danger-outline app-btn-danger-outline--row',
+      onClickHandler: () => confirmDialog.open()
+    })
+
+    return new Container([triggerBtn], { class: 'app-table-cell app-delegation-row__action' })
+  }
+
+  function renderDelegationTable() {
+    delegationCountText.children = [
+      `${currentDelegations.length} ${currentDelegations.length === 1 ? 'person' : 'people'}`
+    ]
+
     if (currentDelegations.length === 0) {
-      delegationListContainer.children = [
-        new Text('No delegations', { type: 'p', class: 'app-empty-state' })
+      delegationTableBody.children = [
+        new Text('No delegations recorded.', { type: 'p', class: 'app-delegation-table__empty' })
       ]
       return
     }
-    delegationListContainer.children = currentDelegations.map(d => buildDelegationRow(d))
+
+    const headerRow = new Container([
+      new Container([new Text('Person', { type: 'span', class: 'app-table-col-header' })], { class: 'app-table-cell' }),
+      new Container([new Text('Access type', { type: 'span', class: 'app-table-col-header' })], { class: 'app-table-cell app-delegation-col--access' }),
+      new Container([new Text('Granted', { type: 'span', class: 'app-table-col-header' })], { class: 'app-table-cell app-delegation-col--date' }),
+      new Container([new Text('', { type: 'span' })], { class: 'app-table-cell app-delegation-col--action' })
+    ], { class: 'app-table-header' })
+
+    delegationTableBody.children = [
+      headerRow,
+      ...currentDelegations.map((d, i) => buildDelegationRow(d, i))
+    ]
   }
 
-  renderDelegationList()
+  renderDelegationTable()
+
+  const delegationsCard = new Container([
+    new Container([
+      new Text('Delegations', { type: 'h3', class: 'app-form-section__heading' }),
+      delegationCountText
+    ], { class: 'app-form-section__heading-row app-form-section__heading-row--spaced' }),
+    delegationTableBody
+  ], { class: 'app-form-section' })
 
   // -------------------------------------------------------------------
-  // Add Delegation Form (only for users with delegate permission)
+  // Card 3: Grant Access form
   // -------------------------------------------------------------------
 
-  function buildAddDelegationSection() {
+  function buildGrantAccessCard() {
     if (!canDelegate) return null
 
     const personField = new FormField({ value: '' })
@@ -143,10 +279,10 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
       placeholder: 'Select access type'
     })
 
-    const grantBtn = new Button('Grant Access', {
+    const grantBtn = new Button('Grant access', {
       variant: 'primary',
+      class: 'app-btn-primary',
       onClickHandler: async () => {
-        // Validate: person must be selected
         const personOption = personField.value
         const identity = personOption?.value
         if (!identity?.email) {
@@ -154,7 +290,6 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
           return
         }
 
-        // Validate: access type must be chosen
         const accessType = comboValue(accessTypeField.value)
         if (!accessType) {
           Toast.error('Please select an access type')
@@ -174,14 +309,13 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
             GrantedByEmail: currentUserEmail,
           }
           await siteApi.list(LIST_PROJECT_ACCESS).createItem(data)
-          // createItem (odata=nometadata) returns no etag; re-fetch parsed rows
-          // so the new delegation's Remove button has a valid etag.
           currentDelegations = await siteApi.list(LIST_PROJECT_ACCESS).getItems({ ProjectUUID: uuid })
-          renderDelegationList()
+          renderDelegationTable()
           loading.success('Access granted')
           personPicker.clearSelection()
           accessTypeField.value = ''
-        } catch {
+        } catch (err) {
+          console.error('[AccessTab] grant access:', err)
           loading.error('Failed to grant access')
         } finally {
           if (grantBtn.isAlive) grantBtn.isLoading = false
@@ -189,25 +323,31 @@ export function createAccessTab({ project, siteApi, uuid, effectiveRole, delegat
       }
     })
 
-    return createFormSection('Grant Access', [
-      createFormRow([
-        createLabeledField('Person', personPicker),
-        createLabeledField('Access Type', accessTypeCombo)
-      ]),
-      new Container([grantBtn], { class: 'app-form-actions' })
-    ])
+    return new Container([
+      new Container([
+        new Text('Grant Access', { type: 'h3', class: 'app-form-section__heading' })
+      ], { class: 'app-form-section__heading-row' }),
+      new Container([
+        new Container([
+          createLabeledField('Person', personPicker)
+        ], { class: 'app-grant-access__person' }),
+        new Container([
+          createLabeledField('Access type', accessTypeCombo)
+        ], { class: 'app-grant-access__type' }),
+        grantBtn
+      ], { class: 'app-grant-access__row' })
+    ], { class: 'app-form-section' })
   }
 
   // -------------------------------------------------------------------
-  // Assemble Tab
+  // Assemble
   // -------------------------------------------------------------------
 
-  const accessLevelSection = buildAccessLevelSection()
-  const delegationsSection = createFormSection('Delegations', [delegationListContainer])
-  const addDelegationSection = buildAddDelegationSection()
-
-  const sections = [accessLevelSection, delegationsSection]
-  if (addDelegationSection) sections.push(addDelegationSection)
+  const sections = [
+    buildAccessLevelCard(),
+    delegationsCard,
+    buildGrantAccessCard()
+  ].filter(Boolean)
 
   return new View(sections)
 }

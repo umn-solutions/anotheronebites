@@ -26,23 +26,32 @@ export function buildTreeData(currentNode, allNodes) {
     id: item.UUID,
     title: item.Title,
     type: item._type || 'project',
+    status: item.Status || '',
+    childCount: 0,
     isCurrent,
     children: nodeChildren
   })
 
-  // Recursively build the downward subtree for a node, bounded by depth.
-  // visited is a Set of UUIDs already on the ancestor chain to guard against cycles.
+  function countDirectChildren(nodeUUID) {
+    return allNodes.filter(n => n.LinkedPrograms === nodeUUID).length
+  }
+
   function buildDown(node, depth, visited) {
-    if (depth <= 0) return toNode(node)
+    if (depth <= 0) {
+      const n = toNode(node)
+      n.childCount = countDirectChildren(node.UUID)
+      return n
+    }
     const nextVisited = new Set(visited)
     nextVisited.add(node.UUID)
     const kids = allNodes.filter(
       n => n.LinkedPrograms === node.UUID && !nextVisited.has(n.UUID)
     )
-    return toNode(node, false, kids.map(c => buildDown(c, depth - 1, nextVisited)))
+    const built = toNode(node, false, kids.map(c => buildDown(c, depth - 1, nextVisited)))
+    built.childCount = kids.length
+    return built
   }
 
-  // Build the current node's downward subtree (marks isCurrent = true at root).
   const ancestorVisited = new Set([currentNode.UUID])
   const kidsOfCurrent = allNodes.filter(
     n => n.LinkedPrograms === currentNode.UUID && !ancestorVisited.has(n.UUID)
@@ -52,8 +61,8 @@ export function buildTreeData(currentNode, allNodes) {
     true,
     kidsOfCurrent.map(c => buildDown(c, MAX_LEVELS_DOWN - 1, ancestorVisited))
   )
+  subtree.childCount = kidsOfCurrent.length
 
-  // Walk upward up to MAX_LEVELS_UP, wrapping the accumulated subtree at each step.
   let node = currentNode
   const upVisited = new Set([currentNode.UUID])
   for (let level = 0; level < MAX_LEVELS_UP; level++) {
@@ -62,7 +71,6 @@ export function buildTreeData(currentNode, allNodes) {
     if (!parent || upVisited.has(parent.UUID)) break
     upVisited.add(parent.UUID)
 
-    // Other children of this parent become leaf nodes (not expanded).
     const siblings = allNodes.filter(
       n => n.LinkedPrograms === parent.UUID && n.UUID !== node.UUID
     )
@@ -70,15 +78,25 @@ export function buildTreeData(currentNode, allNodes) {
       ...siblings.map(s => toNode(s)),
       subtree
     ])
+    subtree.childCount = siblings.length + 1
     node = parent
   }
 
   return subtree
 }
 
+// -------------------------------------------------------------------
+// D3 tree renderer — orthogonal connectors, 240px nodes, no truncation
+// -------------------------------------------------------------------
+
 /**
  * Render a D3 top-to-bottom tree into a raw DOM element.
- * Nodes are clickable rounded rectangles color-coded by type.
+ * Uses orthogonal 1px #d1d1d1 connectors (28px vertical stub → horizontal spine → per-child stub).
+ * Nodes are 240px wide, radius-4 rectangles with three lines of content.
+ *
+ * NOTE: D3's own selection/DOM API (select, append, attr, etc.) is used here —
+ * this is the existing pattern for this module and the only place raw DOM manipulation
+ * is permitted per project rules (not SPARC component injection).
  *
  * @param {HTMLElement} mountEl - Raw DOM element to render SVG into.
  * @param {object} treeData - Root node from buildTreeData.
@@ -89,12 +107,14 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
   // Clear any previous content
   while (mountEl.firstChild) mountEl.removeChild(mountEl.firstChild)
 
-  const nodeWidth = 168
-  const nodeHeight = 48
-  const levelGap = 80
+  // Node dimensions per spec: 240px wide, variable height (needs room for 3 lines)
+  const nodeWidth = 240
+  const nodeHeight = 72   // 10px padding top + 14/14 overline + 14/20 name + 12/16 third line + 10px padding bottom
+  const verticalStub = 28 // 28px vertical stub from node to horizontal spine
+  const levelGap = nodeHeight + verticalStub * 2 + 16
 
   const hierarchy = d3.hierarchy(treeData)
-  const treeLayout = d3.tree().nodeSize([nodeWidth + 24, nodeHeight + levelGap])
+  const treeLayout = d3.tree().nodeSize([nodeWidth + 24, levelGap])
   treeLayout(hierarchy)
 
   // Compute horizontal bounds
@@ -105,9 +125,10 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
     if (n.x > maxX) maxX = n.x
   })
 
-  const svgWidth = Math.max(mountEl.clientWidth || 600, maxX - minX + nodeWidth + 80)
-  const svgHeight = (hierarchy.height + 1) * (nodeHeight + levelGap) + 60
-  const offsetX = -minX + nodeWidth / 2 + 40
+  const padding = 48
+  const svgWidth = Math.max(mountEl.clientWidth || 700, maxX - minX + nodeWidth + padding * 2)
+  const svgHeight = (hierarchy.height + 1) * levelGap + 60
+  const offsetX = -minX + nodeWidth / 2 + padding
 
   const svg = d3.select(mountEl)
     .append('svg')
@@ -115,65 +136,193 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
     .attr('height', svgHeight)
     .style('display', 'block')
     .style('overflow', 'visible')
+    .style('font-family', "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif")
 
   const g = svg.append('g')
     .attr('transform', `translate(${offsetX}, 30)`)
 
-  // Draw links
-  const linkGen = d3.link(d3.curveBumpY)
-    .x(d => d.x)
-    .y(d => d.y)
+  // -------------------------------------------------------------------
+  // Orthogonal connectors
+  // Draw: parent bottom-centre → down 28px vertical stub → horizontal spine → up 28px to child top-centre
+  // 1px solid #d1d1d1
+  // For the current node, the connector stub going up is #00965E
+  // -------------------------------------------------------------------
 
-  g.selectAll('.app-tree-link')
-    .data(hierarchy.links())
-    .join('path')
-    .attr('class', 'app-tree-link')
-    .attr('fill', 'none')
-    .attr('stroke', '#e0e0e0')
-    .attr('stroke-width', 2)
-    .attr('d', linkGen)
+  hierarchy.links().forEach(link => {
+    const parentX = link.source.x
+    const parentY = link.source.y
+    const childX = link.target.x
+    const childY = link.target.y
 
-  // Draw nodes
+    const parentBottom = parentY + nodeHeight / 2
+    const childTop = childY - nodeHeight / 2
+    const spineY = parentBottom + verticalStub
+    const isCurrentChild = link.target.data.isCurrent
+    const connectorColor = isCurrentChild ? '#00965E' : '#d1d1d1'
+
+    // Vertical stub down from parent
+    g.append('line')
+      .attr('x1', parentX).attr('y1', parentBottom)
+      .attr('x2', parentX).attr('y2', spineY)
+      .attr('stroke', '#d1d1d1')
+      .attr('stroke-width', 1)
+
+    // Horizontal spine at spineY
+    const spineLeft = Math.min(parentX, childX)
+    const spineRight = Math.max(parentX, childX)
+    if (spineLeft < spineRight) {
+      g.append('line')
+        .attr('x1', spineLeft).attr('y1', spineY)
+        .attr('x2', spineRight).attr('y2', spineY)
+        .attr('stroke', '#d1d1d1')
+        .attr('stroke-width', 1)
+    }
+
+    // Vertical stub up to child
+    g.append('line')
+      .attr('x1', childX).attr('y1', spineY)
+      .attr('x2', childX).attr('y2', childTop)
+      .attr('stroke', connectorColor)
+      .attr('stroke-width', 1)
+  })
+
+  // -------------------------------------------------------------------
+  // Nodes
+  // -------------------------------------------------------------------
+
   const nodeG = g.selectAll('.app-tree-node')
     .data(hierarchy.descendants())
     .join('g')
     .attr('class', 'app-tree-node')
     .attr('transform', d => `translate(${d.x - nodeWidth / 2}, ${d.y - nodeHeight / 2})`)
-    .style('cursor', 'pointer')
-    .on('click', (event, d) => onNodeClick(d.data))
+    .style('cursor', d => d.data.isCurrent ? 'default' : 'pointer')
+    .on('click', (event, d) => {
+      if (!d.data.isCurrent) onNodeClick(d.data)
+    })
 
-  // Node background rect
+  // Background rect
   nodeG.append('rect')
     .attr('width', nodeWidth)
     .attr('height', nodeHeight)
-    .attr('rx', 8)
-    .attr('ry', 8)
-    .attr('fill', d => d.data.isCurrent ? '#e6f5ef' : '#ffffff')
-    .attr('stroke', d => {
-      if (d.data.isCurrent) return '#00965d'
-      if (d.data.type === 'program') return '#00965d'
-      return '#1d4ed8'
+    .attr('rx', 4)
+    .attr('ry', 4)
+    .attr('fill', d => {
+      if (d.data.isCurrent) return '#E6F4EE'
+      if (!d.parent) return '#E6F4EE'  // root/ancestor gets wash ground
+      return '#ffffff'
     })
-    .attr('stroke-width', d => d.data.isCurrent ? 2 : 1)
+    .attr('stroke', d => {
+      if (d.data.isCurrent) return '#00965E'
+      if (!d.parent) return '#00965E'  // root ancestor
+      if (d.data.type === 'program') return '#8BC8AA'
+      return '#d1d1d1'
+    })
+    .attr('stroke-width', d => {
+      if (d.data.isCurrent) return 2
+      if (!d.parent) return 1.5
+      return 1.5
+    })
 
-  // Type label (overline style)
+  // Focus ring on current node
+  nodeG.filter(d => d.data.isCurrent)
+    .append('rect')
+    .attr('width', nodeWidth + 6)
+    .attr('height', nodeHeight + 6)
+    .attr('x', -3)
+    .attr('y', -3)
+    .attr('rx', 6)
+    .attr('ry', 6)
+    .attr('fill', 'none')
+    .attr('stroke', '#E6F4EE')
+    .attr('stroke-width', 3)
+
+  const PADDING_X = 10
+  const LINE1_Y = 14   // overline
+  const LINE2_Y = 33   // name (14/20)
+  const LINE3_Y = 56   // third line (12/16)
+
+  // Line 1: type overline (PROGRAM / PROJECT, or "PROJECT · YOU ARE HERE" for current)
   nodeG.append('text')
-    .attr('x', 10)
-    .attr('y', 16)
-    .attr('fill', d => d.data.type === 'program' ? '#00965d' : '#1d4ed8')
+    .attr('x', PADDING_X)
+    .attr('y', LINE1_Y)
+    .attr('fill', d => d.data.type === 'program' ? '#00965E' : '#616161')
     .attr('font-size', '10px')
     .attr('font-weight', '600')
-    .attr('letter-spacing', '0.04em')
-    .text(d => d.data.type === 'program' ? 'PROGRAM' : 'PROJECT')
+    .attr('letter-spacing', '0.08em')
+    .attr('text-transform', 'uppercase')
+    .text(d => {
+      const kind = d.data.type === 'program' ? 'PROGRAM' : 'PROJECT'
+      return d.data.isCurrent ? `${kind} · YOU ARE HERE` : kind
+    })
 
-  // Title text (truncate if too long)
+  // Line 2: full untruncated name
   nodeG.append('text')
-    .attr('x', 10)
-    .attr('y', 34)
+    .attr('x', PADDING_X)
+    .attr('y', LINE2_Y)
     .attr('fill', '#242424')
-    .attr('font-size', '12px')
+    .attr('font-size', '14px')
     .attr('font-weight', d => d.data.isCurrent ? '600' : '400')
-    .text(d => d.data.title.length > 20 ? d.data.title.slice(0, 20) + '...' : d.data.title)
+    .attr('line-height', '20px')
+    .each(function(d) {
+      const el = d3.select(this)
+      const title = d.data.title || ''
+      const maxWidth = nodeWidth - PADDING_X * 2
+
+      // Wrap text using tspan elements if needed
+      const words = title.split(/\s+/)
+      let line = ''
+      let lineNumber = 0
+      const lineHeight = 18
+
+      el.text(null)
+
+      let tspan = el.append('tspan').attr('x', PADDING_X).attr('dy', 0)
+
+      for (const word of words) {
+        const testLine = line ? line + ' ' + word : word
+        tspan.text(testLine)
+        const textLength = tspan.node() ? tspan.node().getComputedTextLength() : 0
+
+        if (textLength > maxWidth && line) {
+          tspan.text(line)
+          tspan = el.append('tspan').attr('x', PADDING_X).attr('dy', lineHeight)
+          line = word
+          lineNumber++
+          if (lineNumber >= 2) break  // max 2 lines for name
+        } else {
+          line = testLine
+        }
+      }
+      tspan.text(line)
+    })
+
+  // Line 3: child count for programs, status pill text for projects
+  nodeG.append('text')
+    .attr('x', PADDING_X)
+    .attr('y', LINE3_Y)
+    .attr('font-size', '12px')
+    .attr('font-weight', '400')
+    .each(function(d) {
+      const el = d3.select(this)
+      if (d.data.type === 'program') {
+        const count = d.data.childCount || (d.children ? d.children.length : 0)
+        const label = count === 1 ? '1 child' : `${count} children`
+        el.attr('fill', '#616161').text(label)
+      } else {
+        const status = d.data.status || ''
+        // Use status-appropriate colors matching pastel vocabulary
+        const statusColors = {
+          'In Progress': '#1e40af',
+          'Completed':   '#166534',
+          'Delayed':     '#92400e',
+          'Pipeline':    '#5b21b6',
+          'On Hold':     '#9a3412',
+          'Stopped':     '#991b1b',
+        }
+        const color = statusColors[status] || '#616161'
+        el.attr('fill', color).text(status)
+      }
+    })
 
   return function cleanup() {
     while (mountEl.firstChild) mountEl.removeChild(mountEl.firstChild)

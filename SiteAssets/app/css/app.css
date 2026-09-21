@@ -8,14 +8,52 @@
 
 :root {
 	--app-max-width: 1200px;
+	--app-detail-max-width: 1440px;
 	--app-spacing: 1rem;
 	--app-card-gap: 1rem;
+
+	/* --- Primary green --- */
+	/* Alias to SPARC token (#00965d). The spec calls for #00965E -- the delta
+	   is one digit; we use the SPARC token as authoritative and treat both as
+	   the same brand green. Do not hardcode a different hex. */
 	--app-primary: var(--color-brand-primary);
 	--app-primary-light: var(--color-brand-selected);
-	--app-success: var(--color-success-primary);
+
+	/* New primary interaction states (no SPARC equivalent) */
+	--app-primary-hover: #008755;
+	--app-primary-active: #007348;
+
+	/* New green accent ramp (no SPARC equivalents) */
+	--app-accent-mint: #39A87B;
+	--app-tint-strong: #6ABB97;
+	--app-tint: #8BC8AA;
+
+	/* --- Semantic foreground aliases --- */
+	--app-fg: var(--color-fg-primary);
+	--app-fg-muted: var(--color-fg-secondary);
+	--app-fg-disabled: var(--color-fg-tertiary);
+
+	/* --- Semantic border aliases --- */
 	--app-border: var(--color-stroke-subtle);
+	--app-border-strong: var(--color-stroke-default);
+	--app-border-subtle: var(--color-bg-tertiary);
+
+	/* --- Semantic background aliases --- */
+	--app-bg-page: var(--color-bg-secondary);
+	--app-bg-surface: var(--color-bg-base);
 	--app-bg-light: var(--color-bg-secondary);
-	--app-text-muted: var(--color-fg-secondary);
+
+	/* --- Wash (focus ring ground, zebra rows, avatar grounds) --- */
+	--app-wash: var(--color-brand-selected);
+
+	/* --- Danger --- */
+	--app-danger: var(--color-danger-primary);
+	--app-danger-wash: var(--color-danger-bg);
+	/* Error text on light ground (meets 4.5:1 — no SPARC equivalent) */
+	--app-danger-text: #a4262c;
+
+	/* --- Collapse success into primary per spec --- */
+	--app-success: var(--app-primary);
 
 	/* Elevation & surface */
 	--app-card-shadow: var(--shadow-2);
@@ -33,7 +71,7 @@
 	--app-card-radius: var(--radius-lg);
 	--app-section-gap: 1.5rem;
 
-	/* Status badge colors */
+	/* Status badge colors — kept exactly as existing; no SPARC token equivalents */
 	--app-status-progress-bg: #dbeafe;
 	--app-status-progress-fg: #1e40af;
 	--app-status-completed-bg: #dcfce7;
@@ -46,40 +84,668 @@
 	--app-status-on-hold-fg: #9a3412;
 	--app-status-stopped-bg: #fee2e2;
 	--app-status-stopped-fg: #991b1b;
+	/* "Proposal" pill: used in proposal list cards */
+	--app-status-proposal-bg: #e0f2fe;
+	--app-status-proposal-fg: #075985;
 }
 
-.background-img {
-	position: absolute;
-	inset: 0;
-	height: auto;
-	z-index: -1;
-	filter: blur(3px) opacity(0.5) grayscale(0.05);
+/* ==========================================================================
+   Focus ring — shared across all input surfaces
+   Applied to standard input elements in lieu of overriding SPARC internals.
+   The SPARC focus ring uses --color-focus-outer / --color-focus-inner which
+   differ from the spec (spec: green border + green wash ring).
+   ========================================================================== */
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+	outline: none;
+	border-color: var(--app-primary) !important;
+	box-shadow: 0 0 0 2px var(--app-wash) !important;
 }
 
-/* ---------- Action Buttons ---------- */
+/* ==========================================================================
+   Button hierarchy
+   Layer over .nofbiz__button via wrapper classes on the outer element.
+   SPARC's Button component emits .nofbiz__button on the root element — these
+   modifiers add specificity via the class combination.
+   ========================================================================== */
 
-.app-action-buttons {
+/* --- Primary (solid green) --- */
+.app-btn-primary.nofbiz__button,
+.app-btn-primary .nofbiz__button {
+	background: var(--app-primary);
+	color: var(--color-bg-base);
+	border: none;
+	height: 36px;
+	padding: 0 var(--space-xl);
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	border-radius: var(--radius-md);
+	transition: background var(--app-transition-fast);
+}
+.app-btn-primary.nofbiz__button:hover,
+.app-btn-primary .nofbiz__button:hover {
+	background: var(--app-primary-hover);
+}
+.app-btn-primary.nofbiz__button:active,
+.app-btn-primary .nofbiz__button:active {
+	background: var(--app-primary-active);
+}
+
+/* In-card secondary size override (32px) */
+.app-btn-primary--card.nofbiz__button,
+.app-btn-primary--card .nofbiz__button {
+	height: 32px;
+	padding: 0 var(--space-l);
+}
+
+/* Row-action size override (28px) */
+.app-btn-primary--row.nofbiz__button,
+.app-btn-primary--row .nofbiz__button {
+	height: 28px;
+	padding: 0 var(--space-mNudge);
+}
+
+/* --- Secondary (white + grey border) --- */
+.app-btn-secondary.nofbiz__button,
+.app-btn-secondary .nofbiz__button {
+	background: var(--app-bg-surface);
+	color: var(--app-fg);
+	border: var(--stroke-thin) solid var(--app-border-strong);
+	height: 36px;
+	padding: 0 var(--space-l);
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	border-radius: var(--radius-md);
+	transition: background var(--app-transition-fast);
+}
+.app-btn-secondary.nofbiz__button:hover,
+.app-btn-secondary .nofbiz__button:hover {
+	background: var(--app-bg-page);
+}
+
+/* In-card secondary size override */
+.app-btn-secondary--card.nofbiz__button,
+.app-btn-secondary--card .nofbiz__button {
+	height: 32px;
+}
+
+/* Row-action size override */
+.app-btn-secondary--row.nofbiz__button,
+.app-btn-secondary--row .nofbiz__button {
+	height: 28px;
+	padding: 0 var(--space-mNudge);
+}
+
+/* --- Wash (mint tinted, for tertiary / optional actions) --- */
+.app-btn-wash.nofbiz__button,
+.app-btn-wash .nofbiz__button {
+	background: var(--app-wash);
+	color: var(--app-primary-active);
+	border: var(--stroke-thin) solid var(--app-tint);
+	height: 36px;
+	padding: 0 var(--space-l);
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	border-radius: var(--radius-md);
+	transition: background var(--app-transition-fast), border-color var(--app-transition-fast);
+}
+.app-btn-wash.nofbiz__button:hover,
+.app-btn-wash .nofbiz__button:hover {
+	background: var(--color-brand-subtle);
+	border-color: var(--app-accent-mint);
+}
+
+/* --- Danger outline (destructive secondary: white + red border + red text) --- */
+.app-btn-danger-outline.nofbiz__button,
+.app-btn-danger-outline .nofbiz__button {
+	background: var(--app-bg-surface);
+	color: var(--app-danger);
+	border: var(--stroke-thin) solid var(--app-danger);
+	height: 36px;
+	padding: 0 var(--space-l);
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	border-radius: var(--radius-md);
+	transition: background var(--app-transition-fast);
+}
+.app-btn-danger-outline.nofbiz__button:hover,
+.app-btn-danger-outline .nofbiz__button:hover {
+	background: var(--app-danger-wash);
+}
+
+/* --- Danger solid (confirm button inside destructive modals ONLY) --- */
+.app-btn-danger-solid.nofbiz__button,
+.app-btn-danger-solid .nofbiz__button {
+	background: var(--app-danger);
+	color: var(--color-fg-inverted);
+	border: none;
+	height: 36px;
+	padding: 0 var(--space-l);
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	border-radius: var(--radius-md);
+	transition: background var(--app-transition-fast);
+}
+.app-btn-danger-solid.nofbiz__button:hover,
+.app-btn-danger-solid .nofbiz__button:hover {
+	background: var(--color-danger-hover);
+}
+
+/* ==========================================================================
+   App header (global chrome — 64px persistent bar)
+   Rendered by utils/app-header.js and re-rendered on every NavigationEvent.
+   ========================================================================== */
+
+/* SPARC injects `.nofbiz-reset > * { display:none }` to hide stray body
+   children, which also hides our header mount (a body sibling of #root).
+   The id selector out-specifies that rule (1,1,0 > 0,1,0) with no !important. */
+.nofbiz-reset > #app-header-mount {
+	display: block;
+}
+
+.app-header {
+	position: sticky;
+	top: 0;
+	z-index: var(--z-sticky);
 	display: flex;
-	gap: 0.75rem;
+	align-items: center;
+	justify-content: space-between;
+	height: 64px;
+	padding: 0 var(--space-xxxl);
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+	background: var(--app-bg-surface);
+	box-sizing: border-box;
+	font-family: var(--font-family-base);
+}
+
+.app-header__left {
+	display: flex;
+	align-items: center;
+	gap: var(--space-l);
+}
+
+.app-header__right {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+}
+
+/* --- Create… dropdown menu --- */
+.app-header__create {
+	position: relative;
+}
+
+.app-header__create-menu {
+	position: absolute;
+	top: calc(100% + var(--space-xs));
+	right: 0;
+	min-width: 200px;
+	background: var(--app-bg-surface);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-8);
+	padding: var(--space-xs);
+	display: none;
+	flex-direction: column;
+	z-index: var(--z-sticky);
+}
+
+.app-header__create.is-open .app-header__create-menu {
+	display: flex;
+}
+
+.app-header__create-item {
+	appearance: none;
+	background: transparent;
+	border: none;
+	text-align: left;
+	padding: var(--space-sNudge) var(--space-mNudge);
+	border-radius: var(--radius-md);
+	font-size: var(--font-size-300);
+	font-family: var(--font-family-base);
+	color: var(--app-fg);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.app-header__create-item:hover {
+	background: var(--app-bg-page);
+}
+
+.app-header__create-item:focus-visible {
+	outline: none;
+	border: var(--stroke-thin) solid var(--app-primary);
+	box-shadow: 0 0 0 2px var(--app-wash);
+}
+
+/* Logo image (left of header on all routes) */
+.app-header__logo {
+	height: 36px;
+	width: auto;
+	display: block;
+	object-fit: contain;
+	flex-shrink: 0;
+}
+
+/* Breadcrumb (shown on non-home routes) */
+.app-header__breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+}
+
+.app-header__breadcrumb a,
+.app-header__breadcrumb-link {
+	color: var(--app-fg-muted);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.app-header__breadcrumb a:hover,
+.app-header__breadcrumb-link:hover {
+	color: var(--app-fg);
+}
+
+.app-header__breadcrumb-sep {
+	color: var(--app-border-strong);
+	user-select: none;
+}
+
+.app-header__breadcrumb-current {
+	color: var(--app-fg);
+}
+
+/* ==========================================================================
+   Record header (project / program / proposal detail chrome)
+   Wraps the title row + status pill + meta + TabGroup tab row.
+   Applied via .app-record-header wrapper on the containing element.
+   ========================================================================== */
+
+.app-record-header {
+	background: var(--app-bg-surface);
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+	padding: var(--space-xl) var(--space-xxxl) 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-l);
+}
+
+.app-record-header__title-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-mNudge);
+	flex-wrap: wrap;
+}
+
+.app-record-header__title {
+	font-size: var(--font-size-700);
+	line-height: var(--line-height-700);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg);
+	margin: 0;
+}
+
+.app-record-header__meta {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+	font-family: var(--font-family-monospace);
+}
+
+/* Tab row: override TabGroup so active = green underline per spec.
+   Project detail keeps its TabGroup in the body grid (persistent sidebar
+   beside tab content), so the same styling covers both wrappers. */
+.app-record-header .nofbiz__tabgroup__nav,
+.app-project-detail-body .nofbiz__tabgroup__nav {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-s) var(--space-xxl);
+	padding-bottom: 0;
+	border-bottom: none;
+}
+
+.app-record-header .nofbiz__tabgroup__tab,
+.app-project-detail-body .nofbiz__tabgroup__tab {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg-muted);
+	padding: 0 0 var(--space-mNudge);
+	border-bottom: var(--stroke-thick) solid transparent;
+	cursor: pointer;
+	transition: color var(--app-transition-fast), border-color var(--app-transition-fast);
+}
+
+.app-record-header .nofbiz__tabgroup__tab:hover,
+.app-project-detail-body .nofbiz__tabgroup__tab:hover {
+	color: var(--app-fg);
+}
+
+.app-record-header .nofbiz__tabgroup__tab--active,
+.app-project-detail-body .nofbiz__tabgroup__tab--active {
+	color: var(--app-primary-active);
+	border-bottom-color: var(--app-primary);
+}
+
+/* ==========================================================================
+   Section card (left-accent — main content sections)
+   ========================================================================== */
+
+.app-form-section {
+	background: var(--color-bg-base);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-left: var(--stroke-thickest) solid var(--app-accent-mint);
+	border-radius: var(--app-card-radius);
+	padding: 1.25rem 1.5rem;
+	margin-bottom: var(--app-section-gap);
+	box-shadow: var(--app-card-shadow);
+}
+
+.app-form-section > .nofbiz__text:first-child {
+	font-size: var(--font-size-500);
+	line-height: var(--line-height-500);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+	padding-bottom: var(--space-mNudge);
+	margin-bottom: var(--space-l);
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+/* Section card variant: no left accent (KPI cards, rail widgets, pure data) */
+.app-section-card {
+	background: var(--app-bg-surface);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--app-card-radius);
+	padding: var(--space-l) var(--space-xxl) var(--space-xl);
+	margin-bottom: var(--app-section-gap);
+	box-shadow: var(--app-card-shadow);
+}
+
+.app-section-card__heading {
+	font-size: var(--font-size-500);
+	line-height: var(--line-height-500);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg);
+	padding-bottom: var(--space-mNudge);
+	margin-bottom: var(--space-l);
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.app-section-card__meta {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+	font-weight: var(--font-weight-regular);
+}
+
+/* ==========================================================================
+   Table rows
+   ========================================================================== */
+
+/* Column header row */
+.app-table-header {
+	display: flex;
+	align-items: center;
+	padding: 0 var(--space-sNudge) var(--space-xs);
+}
+
+.app-table-col-header {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
+	flex: 1;
+}
+
+/* Data rows */
+.app-table-row {
+	display: flex;
+	align-items: center;
+	padding: var(--space-m) var(--space-sNudge);
+	margin: 0 calc(-1 * var(--space-sNudge));
+	border-top: var(--stroke-thin) solid var(--app-border-subtle);
+	border-radius: var(--radius-md);
+	font-size: var(--font-size-300);
+	transition: background var(--app-transition-fast);
+}
+
+.app-table-row:hover {
+	background: var(--app-bg-page);
+}
+
+/* Zebra: odd rows get the wash tint */
+.app-table-row:nth-child(odd) {
+	background: var(--app-wash);
+}
+
+.app-table-row:nth-child(odd):hover {
+	background: var(--color-brand-subtle);
+}
+
+/* Totals row */
+.app-table-row--totals {
+	border-top: var(--stroke-thick) solid var(--app-fg);
+	font-size: var(--font-size-400);
+	font-weight: var(--font-weight-semibold);
+	font-family: var(--font-family-monospace);
+	padding-top: var(--space-mNudge);
+	background: transparent;
+}
+
+.app-table-row--totals:nth-child(odd) {
+	background: transparent;
+}
+
+.app-table-cell {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ==========================================================================
+   KPI card grid
+   ========================================================================== */
+
+.app-kpi-grid {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: var(--space-mNudge);
+	margin-bottom: var(--app-section-gap);
+}
+
+.app-kpi-card {
+	background: var(--app-bg-surface);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--app-card-radius);
+	padding: var(--space-l) var(--space-xl);
+	box-shadow: var(--app-card-shadow);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.app-kpi-card__label {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
+}
+
+.app-kpi-card__value {
+	font-size: var(--font-size-700);
+	line-height: var(--line-height-700);
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: -0.02em;
+	color: var(--app-primary-active);
+	font-family: var(--font-family-base);
+}
+
+.app-kpi-card__value--empty {
+	color: var(--app-fg-disabled);
+	font-family: var(--font-family-base);
+}
+
+/* ==========================================================================
+   Empty state (Asana pattern: three ascending rotated squares + heading + desc + action)
+   ========================================================================== */
+
+.app-empty-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	padding: var(--space-xxxl) var(--space-l);
+	gap: var(--space-l);
+	color: var(--app-fg-muted);
+}
+
+/* Three ascending rotated squares */
+.app-empty-state__icon {
+	position: relative;
+	width: 56px;
+	height: 48px;
+	flex-shrink: 0;
+	margin-bottom: var(--space-xs);
+}
+
+.app-empty-state__sq {
+	position: absolute;
+	width: 20px;
+	height: 20px;
+	border-radius: var(--radius-sm);
+	transform: rotate(12deg);
+}
+
+.app-empty-state__sq--1 {
+	background: var(--app-wash);
+	left: 0;
+	bottom: 0;
+}
+
+.app-empty-state__sq--2 {
+	background: var(--app-tint);
+	left: 16px;
+	bottom: 8px;
+}
+
+.app-empty-state__sq--3 {
+	background: var(--app-accent-mint);
+	left: 32px;
+	bottom: 16px;
+}
+
+.app-empty-state__heading {
+	font-size: var(--font-size-500);
+	line-height: var(--line-height-500);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg);
+}
+
+.app-empty-state__desc {
+	font-size: var(--font-size-300);
+	line-height: var(--line-height-300);
+	color: var(--app-fg-muted);
+	max-width: 420px;
+}
+
+/* ==========================================================================
+   Modal shell (BNPP spec — layered over nofbiz__dialog via app-* class)
+   Apply .app-modal-shell to the Dialog component via its class prop.
+   Use .app-modal-shell--danger or .app-modal-shell--create for the intent bar.
+   ========================================================================== */
+
+.app-modal-shell.nofbiz__dialog {
+	width: 520px;
+	max-width: 92vw;
+	border-radius: var(--app-card-radius);
+	box-shadow: 0 32px 64px rgba(0, 0, 0, 0.24), 0 0 8px rgba(0, 0, 0, 0.20);
+	overflow: hidden;
+	padding: 0;
+}
+
+/* Scrim override to spec color */
+.app-modal-shell.nofbiz__dialog::backdrop,
+.nofbiz__modal-scrim {
+	background: rgba(36, 36, 36, 0.45);
+}
+
+/* 4px top intent bar */
+.app-modal-shell.nofbiz__dialog::before {
+	content: '';
+	display: block;
+	height: var(--stroke-thickest);
+	width: 100%;
+	background: var(--app-primary);
+}
+
+.app-modal-shell--danger.nofbiz__dialog::before {
+	background: var(--app-danger);
+}
+
+.app-modal-shell--create.nofbiz__dialog::before {
+	background: var(--app-primary);
+}
+
+/* Body */
+.app-modal-shell .nofbiz__dialog__content {
+	padding: var(--space-xxl);
+	gap: var(--space-l);
+	display: flex;
+	flex-direction: column;
+}
+
+/* Title row */
+.app-modal-shell .nofbiz__dialog__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-size: var(--font-size-500);
+	line-height: var(--line-height-500);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg);
+	margin-bottom: 0;
+}
+
+/* Action row */
+.app-modal-shell .nofbiz__dialog__footer {
+	display: flex;
 	justify-content: flex-end;
-	padding-top: 1rem;
-	margin-top: 0.5rem;
-	border-top: var(--stroke-thin) solid var(--app-border);
+	gap: var(--space-sNudge);
+	padding-top: var(--space-sNudge);
+	border-top: var(--stroke-thin) solid var(--app-border-subtle);
+	margin-top: 0;
 }
 
-/* Push cancel (first button) left, view controls right */
-.app-action-buttons > :first-child,
-.app-wizard-nav > :first-child {
-	margin-right: auto;
+/* Body copy */
+.app-modal-shell .nofbiz__dialog__content > .nofbiz__text {
+	font-size: var(--font-size-300);
+	line-height: var(--line-height-300);
+	color: var(--app-fg-muted);
+	border-top: none;
+	font-weight: var(--font-weight-regular);
+	padding: 0;
 }
 
-/* ---------- Status Badge ---------- */
+/* ==========================================================================
+   Status Badge
+   ========================================================================== */
 
 .app-status-badge {
 	display: inline-block;
-	padding: 0.15rem 0.5rem;
-	border-radius: var(--radius-xl);
-	font-size: 0.75rem;
+	padding: 2px var(--space-m);
+	border-radius: var(--radius-circular);
+	font-size: var(--font-size-200);
+	line-height: var(--line-height-200);
 	font-weight: var(--font-weight-semibold);
 	background: var(--app-bg-light);
 	color: var(--app-text-muted);
@@ -110,29 +776,63 @@
 	background: var(--app-status-stopped-bg);
 	color: var(--app-status-stopped-fg);
 }
-
-/* ---------- Empty State ---------- */
-
-.app-empty-state {
-	text-align: center;
-	padding: 2rem;
-	color: var(--app-text-muted);
+.app-status--proposal {
+	background: var(--app-status-proposal-bg);
+	color: var(--app-status-proposal-fg);
 }
 
-/* ---------- Detail Pages (shared base) ---------- */
+/* Overline / label text utility */
+.app-overline {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
+}
+
+.app-overline--primary {
+	color: var(--app-primary);
+}
+
+/* ==========================================================================
+   Detail Pages (shared base)
+   ========================================================================== */
+
+/* The Router outlet sits below the 64px global header (a body sibling). Pin it
+   to the remaining viewport height so each route's nofbiz overflow:auto scrolls
+   its own content instead of the whole page overflowing by the header height. */
+#root {
+	height: calc(100vh - 64px);
+}
 
 .projects-detail-route,
 .proposals-detail-route,
 .programs-detail-route {
-	padding: calc(var(--app-spacing) * 3);
 	display: flex;
 	flex-direction: column;
+	height: 100%;
 }
 
-/* Center content on simpler detail pages */
+/* Project detail: centre a capped-width column so wide screens get side
+   whitespace instead of edge-to-edge content. width:100% still gives the
+   280px 1fr grid a defined width to resolve against (align-items:center alone
+   would collapse it). The header/body carry their own 32px inner padding. */
+.projects-detail-route {
+	align-items: center;
+	padding: 0;
+}
+
+.projects-detail-route > * {
+	width: 100%;
+	max-width: var(--app-detail-max-width);
+}
+
+/* Center content on the simpler (single-column) detail pages */
 .proposals-detail-route,
 .programs-detail-route {
 	align-items: center;
+	padding: calc(var(--app-spacing) * 3);
 }
 
 .proposals-detail-route > *,
@@ -141,18 +841,26 @@
 	max-width: var(--app-max-width);
 }
 
-/* ---------- Create Pages (vertical centering) ---------- */
+/* ==========================================================================
+   Create Pages (vertical centering)
+   ========================================================================== */
 
 .projects-new-route,
-.programs-new-route {
+.programs-new-route,
+.proposals-new-route {
 	display: flex;
 	flex-direction: column;
-	height: 100%;
+	/* Fill viewport below the 64px header; inner page (wizard / create column)
+	   owns its own padding and scroll. No giant 8vh/8vw inset. */
+	height: calc(100vh - 64px);
 	width: 100%;
-	padding: 8vh 8vw;
+	padding: 0;
+	align-items: stretch;
 }
 
-/* ---------- Form Card ---------- */
+/* ==========================================================================
+   Form Card
+   ========================================================================== */
 
 .app-form-card.nofbiz__card {
 	background: rgba(255, 255, 255, 0.15);
@@ -164,7 +872,9 @@
 	flex-direction: column;
 }
 
-/* ---------- Wizard ---------- */
+/* ==========================================================================
+   Wizard
+   ========================================================================== */
 
 .app-wizard {
 	display: flex;
@@ -174,7 +884,8 @@
 }
 
 .app-wizard h1 {
-	font-size: 1.5rem;
+	font-size: var(--font-size-700);
+	line-height: var(--line-height-700);
 	font-weight: var(--font-weight-semibold);
 	margin-bottom: 1.25rem;
 	color: var(--app-primary);
@@ -191,19 +902,21 @@
 
 .app-step-indicator {
 	text-align: center;
-	font-size: 0.8rem;
+	font-size: var(--font-size-100);
 	font-weight: var(--font-weight-semibold);
-	letter-spacing: 0.03em;
+	letter-spacing: 0.08em;
 	text-transform: uppercase;
 	color: var(--app-primary);
-	background: var(--app-primary-light);
+	background: var(--app-wash);
 	padding: 0.35rem 1rem;
 	border-radius: var(--radius-circular);
 	width: fit-content;
 	margin: 0 auto 0.5rem;
 }
 
-/* ---------- Wizard Content Area ---------- */
+/* ==========================================================================
+   Wizard Content Area
+   ========================================================================== */
 
 #wizard-target {
 	display: flex;
@@ -215,7 +928,9 @@
 	flex-direction: column;
 }
 
-/* ---------- Sections Row (side-by-side form sections) ---------- */
+/* ==========================================================================
+   Sections Row (side-by-side form sections)
+   ========================================================================== */
 
 .app-sections-row {
 	display: flex;
@@ -229,26 +944,9 @@
 	min-width: 0;
 }
 
-/* ---------- Form Layout ---------- */
-
-.app-form-section {
-	background: var(--color-bg-base);
-	border: var(--stroke-thin) solid var(--app-border);
-	border-left: var(--stroke-thickest) solid var(--app-primary);
-	border-radius: var(--app-card-radius);
-	padding: 1.25rem 1.5rem;
-	margin-bottom: var(--app-section-gap);
-	box-shadow: var(--app-card-shadow);
-}
-
-.app-form-section > .nofbiz__text:first-child {
-	font-size: 1.1rem;
-	font-weight: var(--font-weight-semibold);
-	color: var(--color-fg-primary);
-	padding-bottom: 0.75rem;
-	margin-bottom: 1rem;
-	border-bottom: var(--stroke-thin) solid var(--app-border);
-}
+/* ==========================================================================
+   Form Layout
+   ========================================================================== */
 
 .app-form-row {
 	display: flex;
@@ -267,11 +965,11 @@
 }
 
 .app-labeled-field .nofbiz__fieldlabel__label {
+	font-size: var(--font-size-100);
 	font-weight: var(--font-weight-semibold);
-	font-size: 0.8rem;
 	text-transform: uppercase;
-	letter-spacing: 0.02em;
-	color: var(--app-text-muted);
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
 	margin-bottom: 0.25rem;
 }
 
@@ -287,13 +985,36 @@
 	height: 1rem;
 }
 
-/* ---------- Tab Content ---------- */
+/* ==========================================================================
+   Tab Content
+   ========================================================================== */
 
 .app-tab-content {
 	padding: 1rem 0;
 }
 
-/* ---------- Update Dialog ---------- */
+/* ==========================================================================
+   Action Buttons
+   ========================================================================== */
+
+.app-action-buttons {
+	display: flex;
+	gap: 0.75rem;
+	justify-content: flex-end;
+	padding-top: 1rem;
+	margin-top: 0.5rem;
+	border-top: var(--stroke-thin) solid var(--app-border);
+}
+
+/* Push cancel (first button) left, view controls right */
+.app-action-buttons > :first-child,
+.app-wizard-nav > :first-child {
+	margin-right: auto;
+}
+
+/* ==========================================================================
+   Update Dialog (existing — preserved)
+   ========================================================================== */
 
 .app-update-dialog.nofbiz__dialog {
 	width: min(700px, 90vw);
@@ -320,7 +1041,9 @@
 	width: 100%;
 }
 
-/* ---------- Close Project Dialog ---------- */
+/* ==========================================================================
+   Close Project Dialog (existing — preserved)
+   ========================================================================== */
 
 .app-close-project-dialog.nofbiz__dialog {
 	width: min(420px, 92vw);
@@ -372,13 +1095,17 @@
 	display: none;
 }
 
-/* ---------- Full-Page Loader ---------- */
+/* ==========================================================================
+   Full-Page Loader
+   ========================================================================== */
 
 .app-fullpage-loader {
 	position: fixed !important;
 }
 
-/* ---------- Multi-Target Value Picker ---------- */
+/* ==========================================================================
+   Multi-Target Value Picker
+   ========================================================================== */
 
 .app-target-value-input-row {
 	display: flex;
@@ -387,7 +1114,9 @@
 	margin-bottom: 0.35rem;
 }
 
-/* ---------- Multi-Person Picker ---------- */
+/* ==========================================================================
+   Multi-Person Picker
+   ========================================================================== */
 
 .app-multi-person-list {
 	display: flex;
@@ -401,11 +1130,13 @@
 	align-items: center;
 	white-space: nowrap;
 	gap: 0.25rem;
-	background: var(--app-bg-light);
-	border: var(--stroke-thin) solid var(--app-border);
+	background: var(--app-wash);
+	border: var(--stroke-thin) solid var(--app-tint);
 	border-radius: var(--radius-circular);
 	padding: 0.15rem 0.5rem;
-	font-size: 0.85rem;
+	font-size: var(--font-size-200);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-primary-active);
 }
 
 .app-multi-person-item .nofbiz__button {
@@ -415,7 +1146,9 @@
 	line-height: 1;
 }
 
-/* ---------- Detail Dialog ---------- */
+/* ==========================================================================
+   Detail Dialog
+   ========================================================================== */
 
 .app-detail-dialog.nofbiz__dialog {
 	width: min(auto, 90vw);
@@ -445,16 +1178,16 @@
 }
 
 .app-detail-label {
-	font-size: 0.75rem;
+	font-size: var(--font-size-100);
 	font-weight: var(--font-weight-semibold);
 	text-transform: uppercase;
-	letter-spacing: 0.03em;
-	color: var(--app-text-muted);
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
 	margin-bottom: 0.2rem;
 }
 
 .app-detail-value {
-	font-size: 0.95rem;
+	font-size: var(--font-size-300);
 	color: var(--color-fg-primary);
 	max-height: 6rem;
 	overflow-y: auto;
@@ -465,7 +1198,9 @@
 	color: var(--app-text-muted);
 }
 
-/* ---------- Page Header (shared: project detail, admin, proposals) ---------- */
+/* ==========================================================================
+   Page Header (shared: project detail, admin, proposals)
+   ========================================================================== */
 
 .app-detail-header {
 	display: flex;
@@ -479,7 +1214,9 @@
 	margin: 0;
 }
 
-/* ---------- Dashboard Layout (shared: project detail, admin) ---------- */
+/* ==========================================================================
+   Dashboard Layout (shared: project detail, admin)
+   ========================================================================== */
 
 .app-dashboard-layout {
 	display: grid;
@@ -502,7 +1239,21 @@
 	margin: 0;
 }
 
-/* ---------- Responsive Breakpoints ---------- */
+/* ==========================================================================
+   Background image utility
+   ========================================================================== */
+
+.background-img {
+	position: absolute;
+	inset: 0;
+	height: auto;
+	z-index: -1;
+	filter: blur(3px) opacity(0.5) grayscale(0.05);
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
 
 @media (max-width: 768px) {
 	:root {
@@ -538,6 +1289,14 @@
 	.programs-detail-route {
 		padding: calc(var(--app-spacing) * 2);
 	}
+
+	.app-kpi-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.app-header {
+		padding: 0 var(--space-l);
+	}
 }
 
 @media (max-width: 480px) {
@@ -554,7 +1313,9 @@
 	}
 }
 
-/* ---- Tree Visualization ---- */
+/* ==========================================================================
+   Tree Visualization
+   ========================================================================== */
 
 .app-umbrella-panel {
 	padding: var(--space-l);
@@ -589,4 +1350,209 @@
 
 .app-tree-node:hover rect {
 	filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
+}
+
+/* ==========================================================================
+   Compatibility aliases (for existing code using old token names)
+   ========================================================================== */
+
+/* --app-text-muted was the original name; keep it working */
+:root {
+	--app-text-muted: var(--color-fg-secondary);
+}
+
+/* ==========================================================================
+   Create form pattern (4c/4d)
+   Shared by programs/new and proposals/new.
+   760px centred column on --app-bg-page, intro block + one left-accent
+   section card + footer row.
+   ========================================================================== */
+
+/* Page-level ground and column */
+.app-create-page {
+	background: var(--app-bg-page);
+	min-height: 100%;
+	display: flex;
+	justify-content: center;
+	padding: 40px var(--space-xxxl);
+	box-sizing: border-box;
+}
+
+.app-create-column {
+	width: 760px;
+	max-width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-l);
+}
+
+/* Intro block: overline + title + purpose line */
+.app-create-intro {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.app-create-intro__overline {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: var(--app-primary);
+}
+
+.app-create-intro__title {
+	font-size: var(--font-size-700);
+	line-height: var(--line-height-700);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg);
+	margin: 0;
+}
+
+.app-create-intro__purpose {
+	font-size: var(--font-size-300);
+	line-height: var(--line-height-300);
+	color: var(--app-fg-muted);
+}
+
+/* Section card: white, left accent, spec dimensions */
+.app-create-section {
+	background: var(--app-bg-surface);
+	border: var(--stroke-thin) solid var(--app-border);
+	border-left: var(--stroke-thickest) solid var(--app-accent-mint);
+	border-radius: var(--app-card-radius);
+	padding: var(--space-l) var(--space-xxl) var(--space-xl);
+	box-sizing: border-box;
+	box-shadow: var(--app-card-shadow);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-mNudge);
+}
+
+/* Validated shortcut: set apart from the fields above as a distinct mode switch */
+.app-create-validated-field {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+	margin-top: var(--space-xs);
+	padding-top: var(--space-mNudge);
+	border-top: var(--stroke-thin) solid var(--app-border-subtle);
+	cursor: pointer;
+}
+
+.app-create-validated-label {
+	font-size: var(--font-size-300);
+	color: var(--app-fg);
+	user-select: none;
+}
+
+/* Section card heading row */
+.app-create-section__heading-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	padding-bottom: var(--space-mNudge);
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-create-section__heading {
+	font-size: var(--font-size-500);
+	line-height: var(--line-height-500);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-fg);
+	margin: 0;
+}
+
+.app-create-section__meta {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+}
+
+/* 2-up grid for short selects (4 selects in 2 cols) */
+.app-create-fields-2up {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: var(--space-mNudge) var(--space-xxl);
+}
+
+/* Footer row: Cancel left, primary right */
+.app-create-footer {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+}
+
+.app-create-footer__spacer {
+	margin-left: auto;
+}
+
+/* Status pill group for proposal create */
+.app-status-pill-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-s);
+}
+
+.app-status-pill-group__label {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
+}
+
+.app-status-pill-group__pills {
+	display: flex;
+	gap: var(--space-s);
+	flex-wrap: wrap;
+}
+
+/* Individual selectable status pill — combined selector overrides nofbiz__button defaults */
+.app-status-pill.nofbiz__button,
+.app-status-pill .nofbiz__button {
+	font-size: var(--font-size-200);
+	line-height: var(--line-height-200);
+	font-weight: var(--font-weight-semibold);
+	padding: 5px var(--space-mNudge);
+	border-radius: var(--radius-circular);
+	height: auto;
+	min-height: unset;
+	/* Size to content and sit inline in the flex row, not full-width block */
+	width: auto;
+	flex: 0 0 auto;
+	cursor: pointer;
+	background: var(--app-bg-surface);
+	color: var(--app-fg-muted);
+	border: var(--stroke-thin) solid var(--app-border-strong);
+	transition: background var(--app-transition-fast), border-color var(--app-transition-fast), color var(--app-transition-fast);
+	user-select: none;
+}
+
+.app-status-pill.nofbiz__button:hover,
+.app-status-pill .nofbiz__button:hover {
+	background: var(--app-bg-page);
+}
+
+/* Selected states — one per supported status */
+.app-status-pill--selected-pipeline.nofbiz__button,
+.app-status-pill--selected-pipeline .nofbiz__button {
+	background: var(--app-status-pipeline-bg);
+	color: var(--app-status-pipeline-fg);
+	border: 1.5px solid var(--app-status-pipeline-fg);
+}
+
+.app-status-pill--selected-on-hold.nofbiz__button,
+.app-status-pill--selected-on-hold .nofbiz__button {
+	background: var(--app-status-on-hold-bg);
+	color: var(--app-status-on-hold-fg);
+	border: 1.5px solid var(--app-status-on-hold-fg);
+}
+
+.app-status-pill--selected-under-review.nofbiz__button,
+.app-status-pill--selected-under-review .nofbiz__button {
+	background: var(--app-status-progress-bg);
+	color: var(--app-status-progress-fg);
+	border: 1.5px solid var(--app-status-progress-fg);
 }

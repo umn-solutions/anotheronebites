@@ -1,0 +1,276 @@
+/* ==========================================================================
+   Proposal detail — screen-specific overrides only.
+   Foundation tokens, buttons, record header, section cards, tables
+   are all consumed from app.css. This file only adds what is unique
+   to the proposal detail layout.
+   ========================================================================== */
+
+/* ---------- Detail body grid (1fr 360px) ---------- */
+
+.app-prop-detail-body {
+	display: grid;
+	grid-template-columns: 1fr 360px;
+	gap: 24px;
+	padding: 24px 32px;
+	align-items: start;
+	background: var(--app-bg-page);
+	min-height: calc(100vh - 64px - 100px);
+	box-sizing: border-box;
+}
+
+.app-prop-detail-main {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	align-self: start;
+}
+
+.app-prop-detail-rail {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+/* ---------- Record header meta row ---------- */
+
+.app-prop-header-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+	gap: 8px;
+}
+
+.app-prop-header-meta__raised {
+	flex: 1;
+}
+
+.app-prop-header-meta__saved {
+	font-family: var(--font-family-monospace);
+	white-space: nowrap;
+}
+
+/* ---------- Proposal details card: "Editable until validated" meta ---------- */
+
+/* Section card heading right meta is handled by app-section-card__meta in app.css */
+
+/* ---------- Status pill group (reused from 4d, already in app.css) ---------- */
+/* .app-status-pill-group / .app-status-pill-group__pills / .app-status-pill
+   and selected variants are in app.css — consumed, not redeclared here. */
+
+/* ---------- Action row ---------- */
+
+.app-prop-action-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding-top: 16px;
+	margin-top: 16px;
+	border-top: 1px solid var(--app-border-subtle);
+}
+
+.app-prop-action-row__left {
+	/* danger-outline delete button stays on the left */
+}
+
+.app-prop-action-row__right {
+	margin-left: auto;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+/* Disabled primary: opacity .5, tooltip on hover */
+.app-btn-primary--disabled-pending.nofbiz__button,
+.app-btn-primary--disabled-pending .nofbiz__button {
+	opacity: 0.5;
+	cursor: not-allowed;
+	pointer-events: none;
+}
+
+/* Wrap around primary button to carry the tooltip on disabled state */
+.app-validate-btn-wrapper {
+	position: relative;
+	display: inline-block;
+}
+
+.app-validate-btn-wrapper[data-disabled="true"] {
+	pointer-events: auto;
+	cursor: not-allowed;
+}
+
+.app-validate-btn-wrapper .app-validate-tooltip {
+	display: none;
+	position: absolute;
+	bottom: calc(100% + 6px);
+	right: 0;
+	background: var(--app-fg);
+	color: var(--app-bg-surface);
+	font-size: var(--font-size-200);
+	padding: 6px 10px;
+	border-radius: 4px;
+	white-space: nowrap;
+	max-width: 260px;
+	white-space: normal;
+	z-index: 100;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+	line-height: var(--line-height-200);
+}
+
+.app-validate-btn-wrapper[data-disabled="true"]:hover .app-validate-tooltip {
+	display: block;
+}
+
+/* ---------- Error treatment for required fields ---------- */
+
+.app-field--required-error .nofbiz__fieldlabel__label {
+	color: var(--app-danger-text) !important;
+}
+
+.app-field--required-error .nofbiz__textinput,
+.app-field--required-error .nofbiz__combobox,
+.app-field--required-error .nofbiz__peoplepicker {
+	border-color: var(--app-danger) !important;
+}
+
+.app-field-error-msg {
+	font-size: var(--font-size-200);
+	color: var(--app-danger-text);
+	margin-top: 4px;
+}
+
+/* ---------- Right rail: Validation readiness ---------- */
+
+.app-readiness-count {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+
+.app-readiness-count__num {
+	font-size: var(--font-size-700);
+	line-height: var(--line-height-700);
+	font-weight: var(--font-weight-semibold);
+	letter-spacing: -0.02em;
+	color: var(--app-fg);
+	font-family: var(--font-family-monospace);
+}
+
+.app-readiness-count__label {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+}
+
+/* 8px progress bar */
+.app-readiness-bar {
+	height: 8px;
+	background: #f0f0f0;
+	border-radius: 10000px;
+	overflow: hidden;
+	margin-bottom: 12px;
+}
+
+.app-readiness-bar__fill {
+	height: 100%;
+	background: var(--app-primary);
+	border-radius: 10000px;
+	transition: width var(--app-transition-normal);
+}
+
+/* Checklist */
+.app-readiness-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.app-readiness-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* 16px disc for met items */
+.app-readiness-disc {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.app-readiness-disc--met {
+	background: var(--app-wash);
+}
+
+.app-readiness-disc--met::after {
+	content: '';
+	width: 6px;
+	height: 9px;
+	border-right: 1.5px solid var(--app-primary-active);
+	border-bottom: 1.5px solid var(--app-primary-active);
+	transform: rotate(40deg) translateY(-1px);
+}
+
+/* 16px ring for unmet items */
+.app-readiness-disc--unmet {
+	border: 1.5px solid var(--app-danger);
+	background: transparent;
+}
+
+.app-readiness-item__label {
+	font-size: var(--font-size-300);
+	color: var(--app-fg);
+}
+
+.app-readiness-item__label--unmet {
+	color: var(--app-danger-text);
+}
+
+/* "What validation does" flat wash panel */
+.app-validation-info-panel {
+	background: var(--app-wash);
+	border-radius: 8px;
+	padding: 12px 16px;
+	margin-top: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.app-validation-info-panel__label {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-primary-active);
+}
+
+.app-validation-info-panel__body {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+	line-height: var(--line-height-300);
+}
+
+/* ---------- Proposal-specific status badge variant ---------- */
+
+/* "Under review" uses the same blue pastel as the Proposal badge family */
+.app-status--under-review {
+	background: var(--app-status-proposal-bg);
+	color: var(--app-status-proposal-fg);
+}
+
+/* ---------- Context textarea ---------- */
+
+.app-prop-context-area .nofbiz__textarea,
+.app-prop-context-area textarea {
+	width: 100%;
+	min-height: 72px;
+	resize: vertical;
+}

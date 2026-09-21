@@ -11,6 +11,11 @@ var _spPageContextInfo = {
   formDigestValue: '0x1234MOCK_DIGEST_VALUE_FOR_SANDBOX',
   formDigestTimeoutSeconds: 1800,
   userLoginName: 'i:0#.w|SANDBOX\\john.doe',
+  // Real SharePoint always populates these for the current user; the mock must
+  // too, so CurrentUser can resolve identity/group membership by email.
+  userEmail: 'john.doe@example.com',
+  userDisplayName: 'John Doe',
+  userId: 1,
 };
 
 /**
@@ -45,15 +50,21 @@ var _P = {
 };
 
 var _spMockData = {
-  // Current user's groups (john.doe is a ProjectManager and Admin)
+  // Site groups (doubles as current user's group list). john.doe is a
+  // ProjectManager and Admin. Users listed for completeness so getSiteGroups()
+  // enumerates the full new structure (Users / ProjectManagers / Admins).
   groups: [
+    { Id: 10, Title: 'Users', Description: 'Standard platform access', OwnerTitle: 'Admin' },
     { Id: 20, Title: 'ProjectManagers', Description: 'Project management access', OwnerTitle: 'Admin' },
     { Id: 30, Title: 'Admins', Description: 'Full administrative access', OwnerTitle: 'Admin' },
   ],
 
-  // Group membership for getGroupUsers() handler
+  // Group membership for getGroupUsers() handler.
+  // Keyed by group Title -- the interceptor resolves members via
+  // store.groupMembers[groupTitle] (spInterceptor.js). New group structure:
+  // Users / ProjectManagers / Admins (Collaborators retired -> Users).
   groupMembers: {
-    10: [ // Collaborators
+    Users: [
       { Id: 7, LoginName: 'i:0#.w|SANDBOX\\bjones', Title: _P.bobJones[1], Email: _P.bobJones[0] },
       { Id: 8, LoginName: 'i:0#.w|SANDBOX\\amartin', Title: _P.alexMartin[1], Email: _P.alexMartin[0] },
       { Id: 9, LoginName: 'i:0#.w|SANDBOX\\jlee', Title: _P.jenniferLee[1], Email: _P.jenniferLee[0] },
@@ -61,7 +72,7 @@ var _spMockData = {
       { Id: 11, LoginName: 'i:0#.w|SANDBOX\\dpark', Title: _P.davidPark[1], Email: _P.davidPark[0] },
       { Id: 12, LoginName: 'i:0#.w|SANDBOX\\ewhite', Title: _P.emmaWhite[1], Email: _P.emmaWhite[0] },
     ],
-    20: [ // ProjectManagers
+    ProjectManagers: [
       { Id: 1, LoginName: 'i:0#.w|SANDBOX\\john.doe', Title: _P.johnDoe[1], Email: _P.johnDoe[0] },
       { Id: 2, LoginName: 'i:0#.w|SANDBOX\\jsmith', Title: _P.janeSmith[1], Email: _P.janeSmith[0] },
       { Id: 3, LoginName: 'i:0#.w|SANDBOX\\mgarcia', Title: _P.mariaGarcia[1], Email: _P.mariaGarcia[0] },
@@ -69,7 +80,7 @@ var _spMockData = {
       { Id: 5, LoginName: 'i:0#.w|SANDBOX\\awong', Title: _P.aliceWong[1], Email: _P.aliceWong[0] },
       { Id: 6, LoginName: 'i:0#.w|SANDBOX\\cdiaz', Title: _P.carlosDiaz[1], Email: _P.carlosDiaz[0] },
     ],
-    30: [ // Admins
+    Admins: [
       { Id: 1, LoginName: 'i:0#.w|SANDBOX\\john.doe', Title: _P.johnDoe[1], Email: _P.johnDoe[0] },
     ],
   },
@@ -875,19 +886,6 @@ var _spMockData = {
         { Id: 2, Title: 'P4P Transversalities', IsActive: 'true', Members: '[]' },
         { Id: 3, Title: 'We Motion', IsActive: 'true', Members: '[]' },
         { Id: 4, Title: 'GB&FIC PT', IsActive: 'true', Members: '[]' },
-      ],
-    },
-
-    UserRoles: {
-      nextId: 4,
-      fields: [
-        { Title: 'Title', InternalName: 'Title', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
-        { Title: 'Roles', InternalName: 'Roles', TypeAsString: 'Note', FieldTypeKind: 3, Indexed: false },
-      ],
-      items: [
-        { Id: 1, Title: 'john.doe@example.com', Roles: '["admin","project_manager"]' },
-        { Id: 2, Title: 'jane.smith@example.com', Roles: '["project_manager"]' },
-        { Id: 3, Title: 'bob.jones@example.com', Roles: '["collaborator"]' },
       ],
     },
 

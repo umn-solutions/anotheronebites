@@ -5,10 +5,26 @@ export const splitUuids = (v) => (v || '').split(';').map(s => s.trim()).filter(
 
 /**
  * Build a reusable "delete with confirmation" action.
+ * Wired to the app-modal-shell--danger foundation class per the 3f modal system spec.
+ *
  * Returns { triggerButton, dialog }. Caller places triggerButton in the UI
  * and MUST include dialog in the route's returned component array.
  *
- * onConfirm: async () => {}  -- performs cleanup + the actual deleteItem.
+ * The confirm button states its verb (confirmLabel) — never "OK" or "Confirm".
+ * The modal names the record in the body text.
+ *
+ * @param {object} opts
+ * @param {string}   opts.triggerLabel  - Label for the trigger button (shown in the UI)
+ * @param {string}   opts.dialogTitle   - Modal title (typically "Delete <Record name>")
+ * @param {string}   opts.message       - Body copy naming the record, e.g. 'Delete "Acme Project"?'
+ * @param {string}  [opts.warning]      - Secondary body paragraph with consequence details
+ * @param {string}  [opts.confirmLabel] - Text for the confirm button (must be a verb, e.g. "Delete project")
+ * @param {function} opts.onConfirm     - Async function: performs cleanup + deleteItem
+ * @param {string}  [opts.loadingText]  - Toast loading message
+ * @param {string}  [opts.successText]  - Toast success message
+ * @param {string}  [opts.errorText]    - Toast error message
+ * @param {string}  [opts.navigateTo]   - Route to navigate to after success
+ * @returns {{ triggerButton: Button, dialog: Dialog }}
  */
 export function createDeleteAction({
   triggerLabel,
@@ -22,19 +38,34 @@ export function createDeleteAction({
   errorText = 'Failed to delete',
   navigateTo = '/',
 }) {
-  const confirmBtn = new Button(confirmLabel, { variant: 'danger' })
+  const confirmBtn = new Button(confirmLabel, {
+    variant: 'danger',
+    class: 'app-btn-danger-solid'
+  })
+
   let dialog = null
 
-  const content = [new Text(message, { type: 'p' })]
-  if (warning) content.push(new Text(warning, { type: 'p' }))
-  content.push(new Container([
-    new Button('Cancel', { variant: 'secondary', onClickHandler: () => dialog.close() }),
-    confirmBtn,
-  ], { class: 'app-dialog-actions' }))
+  const cancelBtn = new Button('Cancel', {
+    variant: 'secondary',
+    class: 'app-btn-secondary',
+    onClickHandler: () => dialog.close()
+  })
+
+  const content = [
+    new Text(message, { type: 'p' })
+  ]
+
+  if (warning) {
+    content.push(new Text(warning, { type: 'p', class: 'app-modal-shell__warning' }))
+  }
+
+  content.push(
+    new Container([cancelBtn, confirmBtn], { class: 'app-modal-actions' })
+  )
 
   dialog = new Dialog({
     title: dialogTitle,
-    variant: 'warning',
+    class: 'app-modal-shell app-modal-shell--danger',
     content,
     onCloseHandler: () => {},
   })
@@ -50,12 +81,13 @@ export function createDeleteAction({
     } catch {
       loading.error(errorText)
     } finally {
-      confirmBtn.isLoading = false
+      if (confirmBtn.isAlive) confirmBtn.isLoading = false
     }
   }
 
   const triggerButton = new Button(triggerLabel, {
-    variant: 'danger',
+    variant: 'secondary',
+    class: 'app-btn-danger-outline',
     onClickHandler: () => dialog.open(),
   })
 

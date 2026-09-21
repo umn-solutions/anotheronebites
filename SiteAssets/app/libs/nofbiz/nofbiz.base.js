@@ -1,4 +1,4 @@
-const {c: cloneDeep, u: uniqueId, f: forEach, s: some, m: map, d: debounce, r: reduce, o: orderBy} = await import("./dependencies/lodash.js").catch(() => {
+const {c: cloneDeep, u: uniqueId, f: forEach, d: debounce, s: some, m: map, t: throttle, r: reduce, o: orderBy, e: every} = await import("./dependencies/lodash.js").catch(() => {
     throw new Error("[SPARC] Required vendor file not found: dependencies/lodash.js");
 });
 
@@ -44,20 +44,31 @@ class FormField {
         this._subscribers = new Set;
         this._validatorCallback = props?.validatorCallback;
     }
-    [Symbol.toStringTag]() {
+    get [Symbol.toStringTag]() {
         return "Form Field";
     }
     [Symbol.toPrimitive]() {
         return this.toString();
     }
     toString() {
-        if (typeof this._value === "object" && "label" in this._value) {
-            if (Array.isArray(this._value)) return this._value.map(e => e.label).join(", "); else return this._value.label;
-        } else return this._value;
+        if (Array.isArray(this._value)) {
+            return this._value.map(e => e.label).join(", ");
+        }
+        if (typeof this._value === "object" && this._value !== null && "label" in this._value) {
+            return this._value.label;
+        }
+        return this._value;
     }
     validate() {
         if (typeof this?._validatorCallback !== "function") return null;
-        this._isValid = this._validatorCallback(this._value);
+        const result = this._validatorCallback(this._value);
+        if (result !== null && typeof result === "object" && typeof result.then === "function") {
+            console.warn("[FormField.validate] validator is async but validate() was called synchronously.", "Call validateAsync() instead to get a real boolean result.", {
+                field: this
+            });
+            return null;
+        }
+        this._isValid = result;
         return this._isValid;
     }
     async validateAsync() {
@@ -121,7 +132,7 @@ class FormField {
             try {
                 subscriber(this._value);
             } catch (error) {
-                console.error("FormField subscriber threw an error:", error);
+                console.error("[FormField._notify] subscriber threw", error);
             }
         }
     }
@@ -146,6 +157,7 @@ function isHTMDComponent(arg) {
 class HTMDElement {
     constructor(children, props = {}) {
         this._eventsMap = {};
+        this._managedListeners = new Map;
         this._id = props?.id || generateRuntimeUID(`${LIB_PREFIX}-element`);
         this._name = new.target.name.toLowerCase();
         this._class = "";
@@ -196,6 +208,42 @@ class HTMDElement {
     removeAllEventListeners() {
         this.instance?.find("*").addBack().off();
     }
+    _hashSelector(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = h * 31 + s.charCodeAt(i) | 0;
+        return (h >>> 0).toString(36);
+    }
+    _managedNs(event, selector) {
+        const tag = selector ? "s" + this._hashSelector(selector) : "root";
+        return `${event}.sparc-${this._id}-${tag}`;
+    }
+    _addManagedListener(event, handler, selector) {
+        const key = selector ? `${event}|${selector}` : event;
+        const ns = this._managedNs(event, selector);
+        const prior = this._managedListeners.get(key);
+        if (prior) {
+            this.instance?.off(ns);
+        }
+        this._managedListeners.set(key, handler);
+        if (selector) {
+            this.instance?.on(ns, selector, handler);
+        } else {
+            this.instance?.on(ns, handler);
+        }
+    }
+    _applyManagedListeners() {
+        for (const [key, handler] of this._managedListeners) {
+            const pipeIdx = key.indexOf("|");
+            const event = pipeIdx === -1 ? key : key.slice(0, pipeIdx);
+            const selector = pipeIdx === -1 ? undefined : key.slice(pipeIdx + 1);
+            const ns = this._managedNs(event, selector);
+            if (selector) {
+                this.instance?.on(ns, selector, handler);
+            } else {
+                this.instance?.on(ns, handler);
+            }
+        }
+    }
     _removeChild(child) {
         if (isHTMDComponent(child)) {
             child.remove();
@@ -228,9 +276,11 @@ class HTMDElement {
         if (shouldRenderChildren) this._renderChildren(this._children, childrenOptions);
     }
     _refresh(shouldRenderChildren = true, childrenOptions) {
+        if (shouldRenderChildren) this._removeChildren(this._children);
         this.instance?.replaceWith(this.toString());
         this.removeEventListeners();
         this._applyEventListeners();
+        this._applyManagedListeners();
         if (shouldRenderChildren) this._renderChildren(this._children, childrenOptions);
     }
     _renderChild(child, options) {
@@ -238,7 +288,7 @@ class HTMDElement {
             child.containerSelector = `${this.selector} ${options?.childrenContainerSelector ?? ""}`;
             child.render();
         } else if (typeof child === `function`) {
-            this._renderChild(child());
+            this._renderChild(child(), options);
             return;
         } else {
             if (options?.childrenContainerSelector) {
@@ -299,13 +349,16 @@ class HTMDElement {
 class FormControl extends HTMDElement {
     constructor(fieldOrValue, props = {}) {
         super(undefined, props);
+        this._validationModifier = "";
         if (fieldOrValue instanceof FormField) {
             this._value = fieldOrValue;
             this._value.inputSelector = this.selector;
+            this._ownsFormField = false;
         } else {
             this._value = new FormField({
                 value: fieldOrValue
             });
+            this._ownsFormField = true;
         }
         this._isDisabled = props?.isDisabled || false;
         this._isLoading = props?.isLoading || false;
@@ -316,17 +369,23 @@ class FormControl extends HTMDElement {
     }
     _validate() {
         if (!this.instance) return;
-        this.instance.removeClass(this._validationClass);
-        this.class = this.class.replace(this._validationClass, "");
+        if (this._validationModifier) {
+            this.instance.removeClass(this._validationModifier);
+        }
         this._value.validate();
-        this.instance.addClass(this._validationClass);
-        this.class += this._validationClass;
+        const newModifier = this._validationClass;
+        this._validationModifier = newModifier;
+        if (newModifier) {
+            this.instance.addClass(newModifier);
+        }
     }
     toggleDisabledState() {
+        if (!this.isAlive) return;
         this._isDisabled = !this._isDisabled;
         this.render();
     }
     toggleLoadingState() {
+        if (!this.isAlive) return;
         this._isLoading = !this._isLoading;
         this.render();
     }
@@ -336,6 +395,12 @@ class FormControl extends HTMDElement {
         if (this._isDisabled) mods.push(prefix + "disabled");
         if (this._isLoading) mods.push(prefix + "loading");
         return mods.join(" ");
+    }
+    remove() {
+        if (this._ownsFormField) {
+            this._value.dispose();
+        }
+        super.remove();
     }
     set class(str) {
         super.class = `form-control${str ? ` ${str}` : ""}`;
@@ -353,6 +418,7 @@ class FormControl extends HTMDElement {
         return this._value;
     }
     set isDisabled(flag) {
+        if (!this.isAlive) return;
         this._isDisabled = flag;
         this.render();
     }
@@ -360,11 +426,35 @@ class FormControl extends HTMDElement {
         return this._isDisabled;
     }
     set isLoading(flag) {
+        if (!this.isAlive) return;
         this._isLoading = flag;
         this.render();
     }
     get isLoading() {
         return this._isLoading;
+    }
+}
+
+class DebouncedInput extends FormControl {
+    constructor(fieldOrValue, props = {}) {
+        super(fieldOrValue, props);
+        this._debouncedSync = debounce(() => this._syncValue(), props?.debounceMs ?? 300);
+    }
+    _onInput() {}
+    _applyEventListeners() {
+        super._applyEventListeners();
+        this.setEventHandler("input", () => {
+            this._debouncedSync();
+            this._onInput();
+        });
+        this.setEventHandler("blur", () => {
+            this._debouncedSync.cancel();
+            this._syncValue();
+        });
+    }
+    remove() {
+        this._debouncedSync.cancel();
+        super.remove();
     }
 }
 
@@ -374,6 +464,7 @@ class SystemError extends Error {
         this._name = name;
         this._timestamp = new Date;
         this._breaksFlow = options?.breaksFlow ?? true;
+        this.cause = options?.cause;
     }
     static fromErrorEvent(event, options = {
         breaksFlow: true
@@ -383,9 +474,17 @@ class SystemError extends Error {
             return error;
         }
         let sysError;
-        if (error?.constructor !== Error.constructor) {
-            sysError = new SystemError(error?.name, error?.message, options);
-        } else sysError = new SystemError(`UndefinedError`, error.message, options);
+        if (error?.constructor !== Error) {
+            sysError = new SystemError(error?.name ?? "UnknownError", error?.message ?? "", {
+                ...options,
+                cause: error
+            });
+        } else {
+            sysError = new SystemError("UndefinedError", error.message, {
+                ...options,
+                cause: error
+            });
+        }
         sysError.stack = error.stack;
         return sysError;
     }
@@ -399,14 +498,20 @@ class SystemError extends Error {
         return this._breaksFlow;
     }
     toString() {
-        return `${this._name}: ${this.message} --- stack trace --- ${this.stack} `;
+        const causeStr = this.cause != null ? ` --- caused by --- ${this.cause instanceof Error ? this.cause.stack ?? String(this.cause) : String(this.cause)}` : "";
+        return `${this._name}: ${this.message} --- stack trace --- ${this.stack}${causeStr}`;
     }
     toJSON() {
         return JSON.stringify({
             name: this.name,
             message: this.message,
             timestamp: this.timestamp,
-            stack: this.stack
+            stack: this.stack,
+            cause: this.cause instanceof Error ? {
+                name: this.cause.name,
+                message: this.cause.message,
+                stack: this.cause.stack
+            } : this.cause != null ? String(this.cause) : undefined
         }, null, 2);
     }
 }
@@ -879,7 +984,7 @@ class Container extends HTMDElement {
         return mods.join(" ");
     }
     toString() {
-        return `<${this._tag} \n                      id="${this.id}"\n                      class="${this.class} ${this._modifierClasses}"\n                          tabindex='-1'\n                  />`;
+        return `<${this._tag}\n                      id="${this.id}"\n                      class="${this.class} ${this._modifierClasses}"\n                          tabindex='-1'\n                  ></${this._tag}>`;
     }
     set onClickHandler(callback) {
         this.setEventHandler("click", callback);
@@ -889,11 +994,13 @@ class Container extends HTMDElement {
 class AccordionItem extends Container {
     constructor(header, children, props) {
         super(children, {
-            class: props?.class ?? ""
+            class: props?.class ?? "",
+            id: props?.id,
+            containerSelector: props?.containerSelector
         });
         this._isOpen = props?.isInitialOpen ?? false;
         this._header = header;
-        this.onOpenCallback = props?.onOpenCallback || (() => {});
+        this._onOpenCallback = props?.onOpenCallback || (() => {});
         this.onCloseCallback = props?.onCloseCallback || (() => {});
     }
     get _modifierClasses() {
@@ -902,19 +1009,19 @@ class AccordionItem extends Container {
         return mods.join(" ");
     }
     _createIcon() {
-        return `<span class="${this.topClassBEM}__header__icon">\n                  ${getIcon("arrow-down-s-line")}\n                  </span>`;
+        return `<span class="${this.topClassBEM}__header__icon">${getIcon("arrow-down-s-line")}</span>`;
     }
     _createHeader() {
-        return `<div class="${this.topClassBEM}__header">\n                  <span class="${this.topClassBEM}__header__content">${escapeHtml(this._header)}</span>\n                  ${this._createIcon()}\n                </div>`;
+        return `<div class="${this.topClassBEM}__header">` + `<span class="${this.topClassBEM}__header__content">${escapeHtml(this._header)}</span>` + this._createIcon() + `</div>`;
     }
     _createBody() {
-        return `<div class="${this.topClassBEM}__body">\n              <div class="${this.topClassBEM}__content"/>\n            </div>`;
+        return `<div class="${this.topClassBEM}__body"><div class="${this.topClassBEM}__content"></div></div>`;
     }
     toString() {
-        const accordion = $(super.toString());
-        accordion.append(this._createHeader());
-        accordion.append(this._createBody());
-        return accordion[0].outerHTML;
+        const tag = this._tag;
+        const id = this.id;
+        const cls = `${this.class} ${this._modifierClasses}`;
+        return `<${tag} id="${id}" class="${cls}" tabindex='-1'>` + this._createHeader() + this._createBody() + `</${tag}>`;
     }
     render() {
         super.render(true, {
@@ -922,7 +1029,7 @@ class AccordionItem extends Container {
         });
     }
     _handleAccordionToggle() {
-        if (this._isOpen) this.onCloseCallback(); else this.onOpenCallback();
+        if (this._isOpen) this.onCloseCallback(); else this._onOpenCallback();
         this._isOpen = !this._isOpen;
         if (this._isOpen) this.instance?.addClass(`${this.topClassBEM}--open`); else this.instance?.removeClass(`${this.topClassBEM}--open`);
     }
@@ -940,13 +1047,16 @@ class AccordionItem extends Container {
         if (this._isOpen) return;
         this._isOpen = true;
         this.instance?.addClass(`${this.topClassBEM}--open`);
-        this.onOpenCallback();
+        this._onOpenCallback();
     }
     toggle() {
         this._handleAccordionToggle();
     }
     get isOpen() {
         return this._isOpen;
+    }
+    _setOpenCallback(cb) {
+        this._onOpenCallback = cb;
     }
     _applyEventListeners() {
         super._applyEventListeners();
@@ -957,12 +1067,16 @@ class AccordionItem extends Container {
 class AccordionGroup extends Container {
     constructor(children, props) {
         super("", props);
-        if (!Array.isArray(children) || some(children, item => !(item instanceof AccordionItem))) throw new SystemError("Invalid children", "AccordionGroup  expects an array of AccordionItems");
+        if (!Array.isArray(children) || some(children, item => !(item instanceof AccordionItem))) throw new SystemError("Invalid children", "AccordionGroup expects an array of AccordionItems");
         this._children = map(children, (item, index) => {
-            item.onOpenCallback = () => this._closeAllOtherItems(index);
+            item._setOpenCallback(() => this._closeAllOtherItems(index));
             return item;
         });
         this.allowMultipleOpen = props?.allowMultipleOpen ?? false;
+        const {openIndex: openIndex} = props ?? {};
+        if (openIndex !== undefined && openIndex >= 0 && openIndex < this._children.length) {
+            this._children[openIndex].open();
+        }
     }
     _closeAllOtherItems(index) {
         if (this.allowMultipleOpen) return;
@@ -971,9 +1085,6 @@ class AccordionGroup extends Container {
                 item.close();
             }
         });
-    }
-    _applyEventListeners() {
-        super._applyEventListeners();
     }
 }
 
@@ -1021,13 +1132,17 @@ class Fragment {
         return this._containerSelector;
     }
     set children(children) {
+        this.remove();
         this._children = children;
+        this.render();
     }
     set containerSelector(selector) {
         this.remove();
         this._containerSelector = selector;
     }
 }
+
+const DISABLE_SCROLL_CLASS = `${LIB_PREFIX}__disable-scroll`;
 
 class Modal extends Container {
     constructor(children, props) {
@@ -1040,45 +1155,68 @@ class Modal extends Container {
     }
     render() {
         super.render();
-        setTimeout(() => {
-            this.instance?.removeAttr("hidden");
-        }, 0);
     }
     open() {
         this._isOpen = true;
         this._onOpenHandler();
         this.instance?.addClass(`${this.topClassBEM}--open`);
-        if (this.backdrop) $(this.containerSelector).addClass(`${this.topClassBEM}--backdrop`);
-        $(this.containerSelector).addClass(`disable-scroll`);
-        clearTimeout(this.instance?.data("blurTimeout"));
+        if (this.backdrop) this.instance?.addClass(`${this.topClassBEM}--backdrop`);
+        $(this._containerSelector).addClass(DISABLE_SCROLL_CLASS);
+        clearTimeout(this.instance?.data(`${LIB_PREFIX}-blurTimeout`));
         this.instance?.trigger("focus");
     }
     close() {
         this._isOpen = false;
         this._onCloseHandler();
         this.instance?.removeClass(`${this.topClassBEM}--open`);
-        $(this.containerSelector).removeClass(`${this.topClassBEM}--backdrop`);
-        $(this.containerSelector).removeClass(`disable-scroll`);
+        this.instance?.removeClass(`${this.topClassBEM}--backdrop`);
+        $(this._containerSelector).removeClass(DISABLE_SCROLL_CLASS);
+    }
+    remove() {
+        this._clearBlurTimeout();
+        if (this._isOpen) {
+            this.instance?.removeClass(`${this.topClassBEM}--open`);
+            this.instance?.removeClass(`${this.topClassBEM}--backdrop`);
+            $(this._containerSelector).removeClass(DISABLE_SCROLL_CLASS);
+            this._isOpen = false;
+        }
+        super.remove();
+    }
+    _clearBlurTimeout() {
+        const stored = this.instance?.data(`${LIB_PREFIX}-blurTimeout`);
+        if (stored != null) {
+            clearTimeout(stored);
+            this.instance?.removeData(`${LIB_PREFIX}-blurTimeout`);
+        }
     }
     _onFocusLossEventListener() {
-        this.instance?.on("focusout", () => {
+        this._addManagedListener("focusout", () => {
             const timeout = setTimeout(() => {
                 const active = document.activeElement;
                 if (!this.instance?.[0].contains(active)) {
                     this.close();
                 }
             }, 0);
-            this.instance?.data("blurTimeout", timeout);
+            this.instance?.data(`${LIB_PREFIX}-blurTimeout`, timeout);
+        });
+    }
+    _onEscapeKeyListener() {
+        this._addManagedListener("keydown", e => {
+            if (e.originalEvent?.key === "Escape") {
+                this.close();
+            }
         });
     }
     _applyEventListeners() {
         super._applyEventListeners();
+        this._onEscapeKeyListener();
         if (this.closeOnFocusLoss) this._onFocusLossEventListener();
     }
     get _modifierClasses() {
-        const superMods = [ super._modifierClasses ];
-        superMods.push(`${this._isOpen ? `${this.topClassBEM}--open` : ""}`);
-        return superMods.join(" ");
+        const superMods = super._modifierClasses;
+        const parts = superMods ? [ superMods ] : [];
+        if (this._isOpen) parts.push(`${this.topClassBEM}--open`);
+        return parts.filter(Boolean).join(" ");
     }
     set onCloseHandler(callback) {
         this._onCloseHandler = callback;
@@ -1093,11 +1231,13 @@ class Modal extends Container {
 
 class SidePanel extends Modal {
     constructor(props) {
+        const containerSelector = props?.containerSelector || "#root";
         const defaults = {
-            ...props
+            ...props,
+            backdrop: props?.backdrop ?? true,
+            closeOnFocusLoss: props?.closeOnFocusLoss ?? true,
+            containerSelector: containerSelector
         };
-        defaults.backdrop = props?.backdrop ?? true;
-        defaults.closeOnFocusLoss = props?.closeOnFocusLoss ?? true;
         super([], defaults);
         this._title = props?.title || "";
         this._width = props?.width || "400px";
@@ -1109,7 +1249,7 @@ class SidePanel extends Modal {
                 class: `${this.topClassBEM}__footer`
             }));
         }
-        this.children = children;
+        this._children = children;
     }
     get _modifierClasses() {
         const mods = [];
@@ -1117,7 +1257,9 @@ class SidePanel extends Modal {
         return mods.join(" ");
     }
     render() {
-        this._containerSelector = "#root";
+        if (!$(this._containerSelector).length) {
+            console.warn(`[SidePanel] containerSelector "${this._containerSelector}" not found in DOM. Panel will not render.`);
+        }
         super.render();
     }
     toString() {
@@ -1125,10 +1267,7 @@ class SidePanel extends Modal {
     }
     _applyEventListeners() {
         super._applyEventListeners();
-        this.instance?.on("keydown", e => {
-            if (e.key === "Escape") this.close();
-        });
-        this.instance?.find(`.${this.topClassBEM}__close-btn`).on("click", () => this.close());
+        this._addManagedListener("click", () => this.close(), `.${this.topClassBEM}__close-btn`);
     }
     get title() {
         return this._title;
@@ -1149,26 +1288,38 @@ class SidePanel extends Modal {
 class View extends HTMDElement {
     constructor(children, props) {
         super(children, props);
+        this._hiding = false;
         this._onRefresh = props?.onRefreshHandler ?? (() => {});
         this.showOnRender = props?.showOnRender ?? true;
     }
     toString() {
-        return `<section\n                    style="display:none;" \n                    id="${this.id}"\n                    class="${this.class}"\n                          tabindex='-1'\n                />`;
+        return `<section\n                    style="display:none;"\n                    id="${this.id}"\n                    class="${this.class}"\n                          tabindex='-1'\n                    ></section>`;
     }
     render(show = this.showOnRender) {
         super.render();
         if (show) this.show();
     }
     hide(duration = 400, onCompleteCallback) {
-        this.instance?.stop(true, true).fadeOut(duration, () => {
-            onCompleteCallback?.();
-            this.removeEventListeners();
+        if (!this._hiding) {
+            this._hiding = true;
+            this.instance?.css("pointer-events", "none");
+        }
+        return new Promise(resolve => {
+            this.instance?.stop(true, true).fadeOut(duration, () => {
+                this._hiding = false;
+                this.instance?.css("pointer-events", "");
+                onCompleteCallback?.();
+                resolve();
+            });
         });
     }
     async show(duration = 400, onCompleteCallback) {
         await this._onRefresh();
-        this.instance?.stop(true, true).fadeIn(duration, () => {
-            onCompleteCallback?.();
+        return new Promise(resolve => {
+            this.instance?.stop(true, true).fadeIn(duration, () => {
+                onCompleteCallback?.();
+                resolve();
+            });
         });
     }
     toggleVisibility(duration = 400, onCompleteCallback) {
@@ -1177,8 +1328,11 @@ class View extends HTMDElement {
     get isVisible() {
         return this.instance?.is(":visible");
     }
+    get isHiding() {
+        return this._hiding;
+    }
     set children(children) {
-        let wasActive = this.isVisible;
+        const wasActive = this.isVisible;
         super.children = children;
         if (wasActive) {
             this.instance?.css("display", "");
@@ -1193,12 +1347,15 @@ class View extends HTMDElement {
 class ViewSwitcher extends Fragment {
     constructor(children, props) {
         super([], props);
+        this._switching = false;
         this.next = () => {
-            const newIndex = this.currentViewIndex + 1 === this._children.length ? 0 : this.currentViewIndex + 1;
+            const len = this._children.length;
+            const newIndex = this.currentViewIndex + 1 === len ? 0 : this.currentViewIndex + 1;
             this.setViewByIndex(newIndex);
         };
         this.previous = () => {
-            const newIndex = this.currentViewIndex === 0 ? this._children.length - 1 : this.currentViewIndex - 1;
+            const len = this._children.length;
+            const newIndex = this.currentViewIndex === 0 ? len - 1 : this.currentViewIndex - 1;
             this.setViewByIndex(newIndex);
         };
         this._viewKeys = {};
@@ -1234,12 +1391,20 @@ class ViewSwitcher extends Fragment {
         }
     }
     setView(viewName) {
+        if (this._switching) return;
         const oldChild = this._currentChild;
         this._currentViewName = viewName;
         this._currentChild = this._children[this._viewKeys[viewName]];
-        oldChild?.hide(400);
-        this._currentChild.show();
-        this._onRefreshHandler(viewName, this._viewKeys[viewName], this._currentChild);
+        if (oldChild === this._currentChild) {
+            this._onRefreshHandler(viewName, this._viewKeys[viewName], this._currentChild);
+            return;
+        }
+        this._switching = true;
+        oldChild?.hide(400).then(() => {
+            this._switching = false;
+            this._currentChild.show();
+            this._onRefreshHandler(viewName, this._viewKeys[viewName], this._currentChild);
+        });
     }
     setViewByIndex(n) {
         const entry = Object.entries(this._viewKeys).find(([_, i]) => i === n);
@@ -1268,29 +1433,19 @@ class Text extends HTMDElement {
         this.title = props?.title ?? "";
     }
     toString() {
-        return `<${this.type} \n              id="${this.id}"\n              class="${this.class}" \n              ${this.type === "label" ? `for="${escapeAttr(this.for)}"` : ""}\n              ${this.title ? `title="${escapeAttr(this.title)}"` : ""}\n              />`;
+        return `<${this.type}\n              id="${this.id}"\n              class="${this.class}"\n              ${this.type === "label" ? `for="${escapeAttr(this.for)}"` : ""}\n              ${this.title ? `title="${escapeAttr(this.title)}"` : ""}\n            ></${this.type}>`;
     }
 }
 
 class Dialog extends Modal {
     constructor(props) {
-        const defaults = {
+        super([], {
+            backdrop: true,
+            closeOnFocusLoss: false,
             ...props
-        };
-        defaults.backdrop = props?.backdrop ?? true;
-        defaults.closeOnFocusLoss = props?.closeOnFocusLoss ?? false;
-        const getIconFromVariant = () => {
-            switch (props.variant) {
-              case "error":
-                return getIcon("error-warning-line");
-
-              default:
-                return "";
-            }
-        };
-        super([], defaults);
-        this._variant = props?.variant || `info`;
-        this.children = [ new Card([ getIconFromVariant(), new Text(props?.title, {
+        });
+        this._variant = props?.variant || "info";
+        this.children = [ new Card([ getIconFromVariant(props.variant), new Text(props?.title, {
             type: "h2"
         }) ], {
             variant: "secondary",
@@ -1305,16 +1460,35 @@ class Dialog extends Modal {
     }
 }
 
+function getIconFromVariant(variant) {
+    switch (variant) {
+      case "error":
+        return getIcon("error-warning-line");
+
+      case "warning":
+        return getIcon("alert-line");
+
+      case "info":
+        return getIcon("information-line");
+    }
+}
+
 class Loader extends HTMDElement {
     constructor(children, props) {
         super(children, props);
         this.animation = props?.animation || "pulse";
     }
     toString() {
-        return `<div id="${this.id}" ${this.animation ? `data-animation=${this.animation}` : ""} class="${this.class}" />`;
+        return `<div id="${this.id}" ${this.animation ? `data-animation="${this.animation}"` : ""} class="${this.class}"></div>`;
     }
     enable() {
-        if (!this.isAlive) this.render();
+        if (!this.isAlive) {
+            if (!this.containerSelector) {
+                console.warn("[Loader.enable] called when not alive and containerSelector is empty -- no-op. Call render() first or set containerSelector.");
+                return;
+            }
+            this.render();
+        }
         this.instance?.addClass(`${this.topClassBEM}--active`);
     }
     disable() {
@@ -1327,7 +1501,13 @@ class Loader extends HTMDElement {
             this.enable();
         }
     }
+    remove() {
+        this.disable();
+        super.remove();
+    }
 }
+
+const LOADING_MAX_DURATION_MS = 3e4;
 
 class Toast {
     static _show(message, type, options = {}) {
@@ -1337,7 +1517,7 @@ class Toast {
         } : Toast._defaults[type];
         const autoClose = options.autoClose ?? defaults.autoClose;
         const baseClass = `${LIB_PREFIX}__toast`, className = `${baseClass} toastify--${type} ${options.className ?? ""}`;
-        return StartToastifyInstance({
+        const raw = StartToastifyInstance({
             text: message,
             className: className,
             duration: autoClose ? options.duration ?? defaults.duration : -1,
@@ -1348,6 +1528,15 @@ class Toast {
             offset: options.offset,
             callback: options.onClose ?? (() => {})
         }).showToast();
+        if (raw == null || typeof raw.hideToast !== "function") {
+            console.warn("[Toast._show] toastify did not return an object with hideToast(); dismissal will be a no-op", {
+                raw: raw
+            });
+            return {
+                hideToast: () => {}
+            };
+        }
+        return raw;
     }
     static success(message, options) {
         this._show(message, "success", options);
@@ -1370,19 +1559,37 @@ class Toast {
         const resolve = (type, msg, opts) => {
             if (resolved) return;
             resolved = true;
+            clearTimeout(autoCloseTimer);
             instance.hideToast();
+            Toast._activeLoaders.delete(controller);
             Toast._show(msg, type, opts);
         };
-        return {
+        const controller = {
             success: (msg, opts) => resolve("success", msg, opts),
             error: (msg, opts) => resolve("error", msg, opts),
             dismiss: () => {
-                if (!resolved) {
-                    resolved = true;
-                    instance.hideToast();
-                }
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(autoCloseTimer);
+                instance.hideToast();
+                Toast._activeLoaders.delete(controller);
             }
         };
+        const autoCloseTimer = setTimeout(() => {
+            if (!resolved) {
+                console.warn("[Toast.loading] auto-dismissed after max duration -- controller was never resolved", {
+                    message: message
+                });
+                controller.dismiss();
+            }
+        }, LOADING_MAX_DURATION_MS);
+        Toast._activeLoaders.add(controller);
+        return controller;
+    }
+    static dismissAll() {
+        for (const loader of [ ...Toast._activeLoaders ]) {
+            loader.dismiss();
+        }
     }
     static promise(promise, messages, options) {
         const toast = Toast.loading(messages.loading, options);
@@ -1417,14 +1624,25 @@ Toast._defaults = {
     }
 };
 
+Toast._activeLoaders = new Set;
+
 class Button extends FormControl {
     constructor(children, props) {
         super("button", props);
+        this._throttledClick = null;
         this._children = children;
         this.type = props?.type || "button";
         this.variant = props?.variant || "primary";
         this.isOutlined = props?.isOutlined || false;
         this.isSquared = props?.squared || false;
+        const throttleProp = props?.throttle;
+        if (throttleProp === false) {
+            this._clickThrottleMs = null;
+        } else if (typeof throttleProp === "number") {
+            this._clickThrottleMs = throttleProp;
+        } else {
+            this._clickThrottleMs = 300;
+        }
         this.onClickHandler = props.onClickHandler;
     }
     get modifierClasses() {
@@ -1435,10 +1653,23 @@ class Button extends FormControl {
         return `${super.modifierClasses} ${mods.join(" ")}`;
     }
     toString() {
-        return `<button \n\t\t\t\t\ttitle="${escapeAttr(this.title)}"\n\t\t\t\t\tid="${this.id}"\n\t\t\t\t\tclass="${this.class} ${this.modifierClasses}"\n\t\t\t\t\ttype="${this.type}"\n\t\t\t\t\t${this.isDisabled || this.isLoading ? "disabled" : ""}\n\t\t\t\t/>`;
+        return `<button\n\t\t\t\t\ttitle="${escapeAttr(this.title)}"\n\t\t\t\t\tid="${this.id}"\n\t\t\t\t\tclass="${this.class} ${this.modifierClasses}"\n\t\t\t\t\ttype="${this.type}"\n\t\t\t\t\t${this.isDisabled || this.isLoading ? "disabled" : ""}\n\t\t\t\t></button>`;
     }
     set onClickHandler(callback) {
-        this.setEventHandler("click", callback);
+        this._throttledClick?.cancel();
+        this._throttledClick = null;
+        if (typeof callback === "function" && this._clickThrottleMs !== null) {
+            this._throttledClick = throttle(callback, this._clickThrottleMs, {
+                trailing: false
+            });
+            this.setEventHandler("click", this._throttledClick);
+        } else {
+            this.setEventHandler("click", callback);
+        }
+    }
+    remove() {
+        this._throttledClick?.cancel();
+        super.remove();
     }
 }
 
@@ -1448,6 +1679,9 @@ class ComboBox extends FormControl {
         this._fuseInstance = null;
         this._focusedIndex = -1;
         this._pendingTimeouts = new Set;
+        this._isLoading = false;
+        this._hasError = false;
+        this._searchSeq = 0;
         this._explicitlyDisabled = props?.isDisabled ?? false;
         this._dataset = this._normalizeDataset(dataset);
         this._filteredDataset = this._dataset;
@@ -1460,6 +1694,9 @@ class ComboBox extends FormControl {
         this._returnFullDataset = props?.returnFullDataset ?? false;
         this._filterFn = props?.filteringFunction ?? (search => this._defaultFilteringFunction(search));
         this._allowCreate = props?.allowCreate ?? false;
+        this._loadingText = props?.loadingText ?? "Searching...";
+        this._noResultsText = props?.noResultsText ?? "No results found";
+        this._errorText = props?.errorText ?? "Search failed";
         this._disableOnEmptyDataset();
         this._syncDatasetFromField();
         const preChecked = this._dataset.filter(e => e.checked);
@@ -1534,7 +1771,7 @@ class ComboBox extends FormControl {
     _createDropdown() {
         const listboxId = `${this.id}-listbox`;
         const multiAttr = this._allowMultiple ? ' aria-multiselectable="true"' : "";
-        return `<div\n      class="${this.topClassBEM}__dropdown"\n      style="display:none"\n    >\n      ${this._createCreateOption()}\n      <div\n        class="${this.topClassBEM}__dropdown__list"\n        role="listbox"\n        id="${listboxId}"\n        ${multiAttr}\n      >\n        ${this._createOptionsList()}\n      </div>\n      ${this._allowMultiple ? `<button class="${this.topClassBEM}__clear-btn">${this._clearText}</button>` : ""}\n    </div>`;
+        return `<div\n      class="${this.topClassBEM}__dropdown"\n      style="display:none"\n    >\n      ${this._createCreateOption()}\n      <div\n        class="${this.topClassBEM}__dropdown__list"\n        role="listbox"\n        id="${listboxId}"\n        ${multiAttr}\n      >\n        ${this._createDropdownBody()}\n      </div>\n      ${this._allowMultiple ? `<button class="${this.topClassBEM}__clear-btn">${this._clearText}</button>` : ""}\n    </div>`;
     }
     _createOption(option, index) {
         const optId = `${this.id}-opt-${index}`;
@@ -1549,10 +1786,47 @@ class ComboBox extends FormControl {
         if (!this._allowCreate) return "";
         return `<div class="${this.topClassBEM}__create-option" style="display:none">\n      <span class="${this.topClassBEM}__create-option__icon">${getIcon("add-line")}</span>\n      <span class="${this.topClassBEM}__create-option__text"></span>\n    </div>`;
     }
+    _createDropdownBody() {
+        if (this._hasError) {
+            return `<div class="${this.topClassBEM}__status-row ${this.topClassBEM}__status-row--error">${escapeHtml(this._errorText)}</div>`;
+        }
+        if (this._isLoading) {
+            const loadingRow = `<div class="${this.topClassBEM}__status-row ${this.topClassBEM}__status-row--loading"><span class="${this.topClassBEM}__status-row__spinner">${getIcon("loader-line")}</span><span>${escapeHtml(this._loadingText)}</span></div>`;
+            if (this._filteredDataset.length > 0) {
+                return loadingRow + this._createOptionsList();
+            }
+            return loadingRow;
+        }
+        if (this._filteredDataset.length === 0) {
+            return `<div class="${this.topClassBEM}__status-row ${this.topClassBEM}__status-row--empty">${this._emptyMessage()}</div>`;
+        }
+        return this._createOptionsList();
+    }
+    _emptyMessage() {
+        return escapeHtml(this._noResultsText);
+    }
+    _setLoading(loading) {
+        if (loading === this._isLoading) return;
+        this._isLoading = loading;
+        if (loading) {
+            this._hasError = false;
+            if (!this._isDropdownOpen) this._openDropdown();
+        }
+        this._refreshDropdownList();
+    }
     _refreshDropdownList() {
-        this.instance?.find(`.${this.topClassBEM}__dropdown__list`).html(this._createOptionsList());
-        this._bindOptionClickHandlers();
-        this._bindKeyboardNavigation();
+        const listEl = this.instance?.find(`.${this.topClassBEM}__dropdown__list`);
+        if (!listEl) return;
+        listEl.html(this._createDropdownBody());
+        if (this._isLoading && this._filteredDataset.length > 0) {
+            listEl.addClass(`${this.topClassBEM}__dropdown__list--refetching`);
+        } else {
+            listEl.removeClass(`${this.topClassBEM}__dropdown__list--refetching`);
+        }
+        if (!this._isLoading && !this._hasError && this._filteredDataset.length > 0) {
+            this._bindOptionClickHandlers();
+            this._bindKeyboardNavigation();
+        }
         this._updateCreateOption();
     }
     _updateCreateOption() {
@@ -1789,17 +2063,43 @@ class ComboBox extends FormControl {
     }
     _onSearchEventListeners() {
         const input = this.instance?.find(`.${this.topClassBEM}__searchbar input`);
-        input?.on("keyup", e => {
+        input?.on("keyup", async e => {
             const event = e.originalEvent;
             if (!event) return;
             if (!event.key.match(/^[\w\s]$/) && event.key !== "Backspace" && event.key !== "Delete") return;
             const value = input.val()?.toString() || "";
-            this._filteredDataset = this._filterFn(value);
-            if (this._filteredDataset.length === 0) {
-                this._filteredDataset = this._dataset;
+            this._hasError = false;
+            const result = this._filterFn(value);
+            if (result && typeof result.then === "function") {
+                const seq = ++this._searchSeq;
+                this._setLoading(true);
+                try {
+                    const opts = await result;
+                    if (!this.isAlive || seq !== this._searchSeq) return;
+                    this._filteredDataset = opts;
+                } catch (err) {
+                    if (!this.isAlive || seq !== this._searchSeq) return;
+                    console.error("[ComboBox] async filter failed", {
+                        value: value,
+                        err: err
+                    });
+                    this._filteredDataset = [];
+                    this._hasError = true;
+                } finally {
+                    if (this.isAlive && seq === this._searchSeq) {
+                        this._isLoading = false;
+                        this._focusedIndex = -1;
+                        this._refreshDropdownList();
+                    }
+                }
+            } else {
+                this._filteredDataset = result;
+                if (result.length === 0) {
+                    this._filteredDataset = this._dataset;
+                }
+                this._focusedIndex = -1;
+                this._refreshDropdownList();
             }
-            this._focusedIndex = -1;
-            this._refreshDropdownList();
         });
     }
     _bindBlurHandler() {
@@ -1959,9 +2259,11 @@ function refreshRequestDigest(siteUrl) {
                 if (isLocal) {
                     $("#__REQUESTDIGEST").val(token);
                 } else {
+                    const REMOTE_BUFFER_S = 120;
+                    const safeLivetime = Math.max(timeoutSeconds - REMOTE_BUFFER_S, REMOTE_BUFFER_S);
                     _remoteTokenCache.set(normalizedTarget, {
                         token: token,
-                        expiresAt: Date.now() + (timeoutSeconds - 60) * 1e3
+                        expiresAt: Date.now() + safeLivetime * 1e3
                     });
                 }
                 resolve(token);
@@ -1998,7 +2300,8 @@ function startDigestTimer() {
         const elapsed = now - _lastTickTimestamp;
         _lastTickTimestamp = now;
         if (elapsed > intervalMs * 2) {
-            refreshRequestDigest().catch(() => {
+            refreshRequestDigest().catch(err => {
+                console.error("[requestDigest.startDigestTimer] digest refresh failed after sleep/suspend detection", err);
                 Toast.error("Your session has expired. Please reload the page.", {
                     autoClose: false
                 });
@@ -2060,8 +2363,8 @@ function baseRequest(ajaxPayload) {
         $.ajax(ajaxPayload).done(res => response = res).fail(jqXHR => syncError = jqXHR);
         if (syncError) {
             if (_isConcurrencyConflict(syncError)) {
-                syncError.responseText ?? syncError.statusText ?? "Unknown error";
-                throw new SystemError("ConcurrencyConflict", `HTTP 412 -- This item was already changed on the server. Please refresh your page and try again.`, {
+                const detail = syncError.responseText ?? syncError.statusText ?? "Unknown error";
+                throw new SystemError("ConcurrencyConflict", `HTTP 412 -- This item was already changed on the server. Please refresh your page and try again. (${detail})`, {
                     breaksFlow: false
                 });
             }
@@ -2071,8 +2374,8 @@ function baseRequest(ajaxPayload) {
     }
     return _ajaxToPromise(ajaxPayload).catch(jqXHR => {
         if (_isConcurrencyConflict(jqXHR)) {
-            jqXHR.responseText ?? jqXHR.statusText ?? "Unknown error";
-            throw new SystemError("ConcurrencyConflict", `HTTP 412 -- This item was already changed on the server. Please refresh your page and try again.`, {
+            const detail = jqXHR.responseText ?? jqXHR.statusText ?? "Unknown error";
+            throw new SystemError("ConcurrencyConflict", `HTTP 412 -- This item was already changed on the server. Please refresh your page and try again. (${detail})`, {
                 breaksFlow: false
             });
         }
@@ -2215,13 +2518,27 @@ function toFieldValue(value) {
     return JSON.stringify(value);
 }
 
+function _parseSPString(raw, logTag, logContext = {}) {
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            console.warn(`${logTag} JSON parse failed, returning raw string`, {
+                ...logContext,
+                raw: raw,
+                err: err
+            });
+            return raw;
+        }
+    }
+    return raw;
+}
+
 function fromFieldValue(raw) {
     if (raw == null || raw === "") return null;
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return raw;
-    }
+    return _parseSPString(raw, "[fromFieldValue]");
 }
 
 function parseFieldValues(item) {
@@ -2231,28 +2548,14 @@ function parseFieldValues(item) {
             result[key] = value;
             continue;
         }
-        if (value === "true") {
-            result[key] = true;
-            continue;
-        }
-        if (value === "false") {
-            result[key] = false;
-            continue;
-        }
-        if (value.startsWith("{") || value.startsWith("[")) {
-            try {
-                result[key] = JSON.parse(value);
-            } catch {
-                result[key] = value;
-            }
-            continue;
-        }
-        result[key] = value;
+        result[key] = _parseSPString(value, "[parseFieldValues]", {
+            key: key
+        });
     }
     return result;
 }
 
-var _CurrentUser_instances, _a$3, _CurrentUser_instance, _CurrentUser_data, _CurrentUser_group, _CurrentUser_initialized, _CurrentUser_resolveGroup, _CurrentUser_assertInitialized;
+var _CurrentUser_instances, _a$3, _CurrentUser_instance, _CurrentUser_initPromise, _CurrentUser_data, _CurrentUser_group, _CurrentUser_initialized, _CurrentUser_runInitialize, _CurrentUser_resolveGroup, _CurrentUser_assertInitialized;
 
 class CurrentUser {
     constructor() {
@@ -2265,19 +2568,9 @@ class CurrentUser {
     }
     async initialize(groupHierarchy = [], options) {
         if (__classPrivateFieldGet(this, _CurrentUser_initialized, "f")) return this;
-        try {
-            const siteApi = new SiteApi;
-            const loginName = options?.targetUser ?? _spPageContextInfo.userLoginName;
-            const data = await getFullUserDetails(loginName, siteApi);
-            __classPrivateFieldSet(this, _CurrentUser_data, data, "f");
-            __classPrivateFieldSet(this, _CurrentUser_group, groupHierarchy ? __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_resolveGroup).call(this, data.groups, groupHierarchy) : null, "f");
-            __classPrivateFieldSet(this, _CurrentUser_initialized, true, "f");
-            return this;
-        } catch (error) {
-            __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_instance);
-            const message = error instanceof Error ? error.message : String(error);
-            throw new SystemError("CurrentUserInitError", message);
-        }
+        if (__classPrivateFieldGet(_a$3, _a$3, "f", _CurrentUser_initPromise)) return __classPrivateFieldGet(_a$3, _a$3, "f", _CurrentUser_initPromise);
+        __classPrivateFieldSet(_a$3, _a$3, __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_runInitialize).call(this, groupHierarchy, options), "f", _CurrentUser_initPromise);
+        return __classPrivateFieldGet(_a$3, _a$3, "f", _CurrentUser_initPromise);
     }
     get(key) {
         __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_assertInitialized).call(this);
@@ -2318,16 +2611,109 @@ class CurrentUser {
 }
 
 _a$3 = CurrentUser, _CurrentUser_data = new WeakMap, _CurrentUser_group = new WeakMap, 
-_CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _CurrentUser_resolveGroup = function _CurrentUser_resolveGroup(userGroups, hierarchy) {
-    for (let i = hierarchy.length - 1; i >= 0; i--) {
-        const entry = hierarchy[i];
-        const match = userGroups.find(g => g.Title.toLowerCase() === entry.groupTitle.toLowerCase());
-        if (match) return {
-            entry: entry,
-            spGroup: match
+_CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _CurrentUser_runInitialize = async function _CurrentUser_runInitialize(groupHierarchy, options) {
+    try {
+        if (options?.targetUser) {
+            console.warn("[CurrentUser] targetUser impersonation active -- DEBUG ONLY", {
+                targetUser: options.targetUser
+            });
+        }
+        const siteApi = new SiteApi;
+        const loginName = options?.targetUser ?? _spPageContextInfo.userLoginName;
+        const data = await getFullUserDetails(loginName, siteApi);
+        const isCurrentUser = !options?.targetUser;
+        const seenEmails = new Set;
+        const seenLogins = new Set;
+        const identityEmails = [];
+        const identityLogins = [];
+        const _addEmail = v => {
+            const s = v?.trim();
+            if (!s) return;
+            const k = s.toLowerCase();
+            if (!seenEmails.has(k)) {
+                seenEmails.add(k);
+                identityEmails.push(s);
+            }
+        };
+        const _addLogin = v => {
+            const s = v?.trim();
+            if (!s) return;
+            const k = s.toLowerCase();
+            if (!seenLogins.has(k)) {
+                seenLogins.add(k);
+                identityLogins.push(s);
+            }
+        };
+        if (isCurrentUser) _addEmail(_spPageContextInfo.userEmail);
+        for (const e of data.accountEmails) _addEmail(e);
+        _addLogin(data.loginName);
+        for (const l of data.accountLogins) _addLogin(l);
+        __classPrivateFieldSet(this, _CurrentUser_data, data, "f");
+        __classPrivateFieldSet(this, _CurrentUser_group, groupHierarchy.length ? await __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_resolveGroup).call(this, groupHierarchy, {
+            emails: identityEmails,
+            logins: identityLogins
+        }, siteApi) : null, "f");
+        __classPrivateFieldSet(this, _CurrentUser_initialized, true, "f");
+        __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_initPromise);
+        return this;
+    } catch (error) {
+        __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_instance);
+        __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_initPromise);
+        console.error("[CurrentUser.initialize] initialization failed", error);
+        if (error instanceof SystemError) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        throw new SystemError("CurrentUserInitError", message, {
+            cause: error
+        });
+    }
+}, _CurrentUser_resolveGroup = async function _CurrentUser_resolveGroup(hierarchy, identities, siteApi) {
+    if (identities.emails.length === 0 && identities.logins.length === 0) {
+        const ctxEmail = _spPageContextInfo.userEmail?.trim();
+        if (!ctxEmail) {
+            console.warn("[CurrentUser] no identifiers available for group resolution -- group hierarchy will not be applied");
+            return null;
+        }
+        console.warn("[CurrentUser] identity set was empty; falling back to session email for group resolution", {
+            ctxEmail: ctxEmail
+        });
+        identities = {
+            emails: [ ctxEmail ],
+            logins: []
         };
     }
-    return null;
+    const results = await Promise.all(hierarchy.map(entry => siteApi.isUserInGroupByIdentities(entry.groupTitle, identities)));
+    let matchedEntry = null;
+    for (let i = hierarchy.length - 1; i >= 0; i--) {
+        if (results[i]) {
+            matchedEntry = hierarchy[i];
+            break;
+        }
+    }
+    if (!matchedEntry) return null;
+    let spGroup = null;
+    try {
+        const allGroups = await siteApi.getSiteGroups();
+        spGroup = allGroups.find(g => g.Title.toLowerCase() === matchedEntry.groupTitle.toLowerCase()) ?? null;
+    } catch (err) {
+        console.warn("[CurrentUser] getSiteGroups failed; group getter will hold a minimal stub", {
+            err: err
+        });
+    }
+    if (!spGroup) {
+        console.warn("[CurrentUser] matched hierarchy entry but SPGroup not found in getSiteGroups -- using stub", {
+            groupTitle: matchedEntry.groupTitle
+        });
+        spGroup = {
+            Id: 0,
+            Title: matchedEntry.groupTitle,
+            Description: "",
+            OwnerTitle: ""
+        };
+    }
+    return {
+        entry: matchedEntry,
+        spGroup: spGroup
+    };
 }, _CurrentUser_assertInitialized = function _CurrentUser_assertInitialized() {
     if (!__classPrivateFieldGet(this, _CurrentUser_initialized, "f")) {
         throw new SystemError("CurrentUserNotInitialized", "CurrentUser.initialize() must be awaited before accessing user data.");
@@ -2338,11 +2724,37 @@ _CurrentUser_instance = {
     value: null
 };
 
+_CurrentUser_initPromise = {
+    value: null
+};
+
+const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const normalizeEmail = e => String(e ?? "").trim().toLowerCase();
+
+const isValidEmail = e => EMAIL_RX.test(normalizeEmail(e));
+
+const escapeODataStr = s => String(s).replace(/'/g, "''");
+
+function unwrapCollection(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (typeof data === "object") {
+        const obj = data;
+        if (Array.isArray(obj.results)) return obj.results;
+        if (Array.isArray(obj.value)) return obj.value;
+        if ("d" in obj) return unwrapCollection(obj.d);
+    }
+    return [];
+}
+
 var _ListApi_title, _ListApi_listItemType;
 
 const CAML_PAGE_SIZE = 500;
 
 const MAX_NESTING_DEPTH = 2;
+
+const KNOWN_CAML_OPERATORS = new Set([ "Eq", "Neq", "Gt", "Lt", "Geq", "Leq", "Contains", "BeginsWith", "IsNull", "IsNotNull", "Or" ]);
 
 class ListApi {
     constructor(title, options = {}) {
@@ -2392,6 +2804,13 @@ class ListApi {
     _validateNonEmptyString(method, paramName, value) {
         if (typeof value !== "string" || value.trim() === "") {
             throw new SystemError("ListApi", `${method}: ${paramName} must be a non-empty string, received ${JSON.stringify(value)}`, {
+                breaksFlow: true
+            });
+        }
+    }
+    _validateCamlFieldName(fieldName) {
+        if (!/^[A-Za-z_][\w.]*$/.test(fieldName)) {
+            throw new SystemError("CAMLQuery", `Field name '${fieldName}' is not a valid XML name -- SharePoint internal field names must match [A-Za-z_][\\w.]* (no spaces, quotes, angle brackets, or other special characters)`, {
                 breaksFlow: true
             });
         }
@@ -2480,19 +2899,31 @@ class ListApi {
         }
     }
     _parseCondition(fieldName, condition) {
+        this._validateCamlFieldName(fieldName);
+        const safeName = escapeHtml(fieldName);
         if (typeof condition === "string") {
-            return `<Eq><FieldRef Name="${fieldName}" /><Value Type="Text">${escapeHtml(condition)}</Value></Eq>`;
+            return `<Eq><FieldRef Name="${safeName}" /><Value Type="Text">${escapeHtml(condition)}</Value></Eq>`;
         }
         const {operator: operator} = condition;
+        if (!KNOWN_CAML_OPERATORS.has(operator)) {
+            throw new SystemError("CAMLQuery", `Operator '${operator}' is not a recognised CAML operator and would produce malformed XML`, {
+                breaksFlow: true
+            });
+        }
         if (operator === "IsNull" || operator === "IsNotNull") {
-            return `<${operator}><FieldRef Name="${fieldName}" /></${operator}>`;
+            return `<${operator}><FieldRef Name="${safeName}" /></${operator}>`;
         }
         if (operator === "Or") {
             const matchOp = condition.match ?? "Eq";
-            const perValue = condition.value.map(v => `<${matchOp}><FieldRef Name="${fieldName}" /><Value Type="Text">${escapeHtml(v)}</Value></${matchOp}>`);
+            if (!KNOWN_CAML_OPERATORS.has(matchOp)) {
+                throw new SystemError("CAMLQuery", `Or match operator '${matchOp}' is not a recognised CAML operator and would produce malformed XML`, {
+                    breaksFlow: true
+                });
+            }
+            const perValue = condition.value.map(v => `<${matchOp}><FieldRef Name="${safeName}" /><Value Type="Text">${escapeHtml(v)}</Value></${matchOp}>`);
             return perValue.length === 1 ? perValue[0] : this._buildOrClause(perValue);
         }
-        return `<${operator}><FieldRef Name="${fieldName}" /><Value Type="Text">${escapeHtml(String(condition.value))}</Value></${operator}>`;
+        return `<${operator}><FieldRef Name="${safeName}" /><Value Type="Text">${escapeHtml(String(condition.value))}</Value></${operator}>`;
     }
     _buildWhereContent(args, depth) {
         if (depth > MAX_NESTING_DEPTH) {
@@ -2519,27 +2950,29 @@ class ListApi {
     _buildViewXml(whereContent, options = {}, rowLimit) {
         const parts = [ "<View>" ];
         if (options.viewFields && options.viewFields.length > 0) {
-            const fieldRefs = options.viewFields.map(f => `<FieldRef Name="${f}" />`).join("");
+            const fieldRefs = options.viewFields.map(f => {
+                this._validateCamlFieldName(f);
+                return `<FieldRef Name="${escapeHtml(f)}" />`;
+            }).join("");
             parts.push(`<ViewFields>${fieldRefs}</ViewFields>`);
         }
         const hasWhere = whereContent !== null;
         const hasOrderBy = options.orderBy && options.orderBy.length > 0;
-        if (hasWhere || hasOrderBy) {
-            parts.push("<Query>");
-            if (hasWhere) {
-                parts.push(`<Where>${whereContent}</Where>`);
-            }
-            if (hasOrderBy) {
-                const orderRefs = options.orderBy.map(o => {
-                    const asc = o.ascending !== false ? "TRUE" : "FALSE";
-                    return `<FieldRef Name="${o.field}" Ascending="${asc}" />`;
-                }).join("");
-                parts.push(`<OrderBy>${orderRefs}</OrderBy>`);
-            }
-            parts.push("</Query>");
-        }
         const effectiveRowLimit = rowLimit ?? (options.limit != null && options.limit < CAML_PAGE_SIZE ? options.limit : CAML_PAGE_SIZE);
+        parts.push("<Query>");
+        if (hasWhere) {
+            parts.push(`<Where>${whereContent}</Where>`);
+        }
+        if (hasOrderBy) {
+            const orderRefs = options.orderBy.map(o => {
+                this._validateCamlFieldName(o.field);
+                const asc = o.ascending !== false ? "TRUE" : "FALSE";
+                return `<FieldRef Name="${escapeHtml(o.field)}" Ascending="${asc}" />`;
+            }).join("");
+            parts.push(`<OrderBy>${orderRefs}</OrderBy>`);
+        }
         parts.push(`<RowLimit Paged="TRUE">${effectiveRowLimit}</RowLimit>`);
+        parts.push("</Query>");
         parts.push("</View>");
         return parts.join("");
     }
@@ -2669,7 +3102,18 @@ class ListApi {
         });
     }
     async getOwnedItems(userId) {
-        const resolvedId = userId ?? String((new CurrentUser).get("siteUserId"));
+        let resolvedId;
+        if (userId !== undefined) {
+            resolvedId = userId;
+        } else {
+            const user = new CurrentUser;
+            if (!user.isInitialized) {
+                throw new SystemError("ListApi", "getOwnedItems() requires CurrentUser to be initialized. Call `await new CurrentUser().initialize(...)` before using getOwnedItems() without an explicit userId.", {
+                    breaksFlow: true
+                });
+            }
+            resolvedId = String(user.get("siteUserId"));
+        }
         return this._queryRequest({
             AuthorId: resolvedId
         });
@@ -2700,13 +3144,22 @@ class ListApi {
             }
         });
     }
-    async deleteALLItems() {
+    async _deleteALLItems() {
         const items = await this.getItems(undefined, {
             limit: Infinity
         });
+        console.warn(`[ListApi._deleteALLItems] starting -- ${items.length} item(s) to delete from '${__classPrivateFieldGet(this, _ListApi_title, "f")}'`);
+        let deleted = 0;
         for (const item of items) {
-            await this.deleteItem(item.Id, item["odata.etag"]);
+            try {
+                await this.deleteItem(item.Id, item["odata.etag"]);
+                deleted++;
+            } catch (err) {
+                console.error(`[ListApi._deleteALLItems] failed on item ${item.Id} (${deleted}/${items.length} deleted so far)`, err);
+                throw err;
+            }
         }
+        console.warn(`[ListApi._deleteALLItems] done -- ${deleted}/${items.length} item(s) deleted from '${__classPrivateFieldGet(this, _ListApi_title, "f")}'`);
     }
     async updateItem(id, fields, etag) {
         this._validateItemId(id);
@@ -2755,7 +3208,7 @@ class ListApi {
     async deleteField(internalName) {
         this._validateNonEmptyString("deleteField", "internalName", internalName);
         const digest = await this._siteApi.getRequestDigest();
-        await spDELETE(`${this.endpoint}/fields/getbyinternalnameortitle('${internalName}')`, {
+        await spDELETE(`${this.endpoint}/fields/getbyinternalnameortitle('${escapeODataStr(internalName)}')`, {
             requestDigest: digest,
             headers: {
                 "IF-MATCH": "*"
@@ -2765,7 +3218,7 @@ class ListApi {
     async setFieldIndexed(internalName, indexed) {
         this._validateNonEmptyString("setFieldIndexed", "internalName", internalName);
         const digest = await this._siteApi.getRequestDigest();
-        await spMERGE(`${this.endpoint}/fields/getbyinternalnameortitle('${internalName}')`, {
+        await spMERGE(`${this.endpoint}/fields/getbyinternalnameortitle('${escapeODataStr(internalName)}')`, {
             data: {
                 __metadata: {
                     type: "SP.Field"
@@ -2779,7 +3232,7 @@ class ListApi {
         });
     }
     get endpoint() {
-        return `${this._siteApi.url}/_api/web/lists/getbytitle('${__classPrivateFieldGet(this, _ListApi_title, "f")}')`;
+        return `${this._siteApi.url}/_api/web/lists/getbytitle('${escapeODataStr(__classPrivateFieldGet(this, _ListApi_title, "f"))}')`;
     }
     get listItemType() {
         return __classPrivateFieldGet(this, _ListApi_listItemType, "f");
@@ -2813,19 +3266,20 @@ function sanitizeQuery(fields) {
     return Object.keys(result).length > 0 ? result : undefined;
 }
 
-var _a$2, _SiteApi_instances, _SiteApi_url, _SiteApi_lists;
+var _SiteApi_instances, _a$2, _SiteApi_instances_1, _SiteApi_url, _SiteApi_lists, _SiteApi_groupSelector;
 
 class SiteApi {
     constructor(absoluteUrl) {
+        _SiteApi_instances.add(this);
         _SiteApi_url.set(this, void 0);
         _SiteApi_lists.set(this, void 0);
         const url = absoluteUrl ?? _spPageContextInfo.webAbsoluteUrl;
         const key = normalizeUrl(url);
-        const existing = __classPrivateFieldGet(_a$2, _a$2, "f", _SiteApi_instances).get(key);
+        const existing = __classPrivateFieldGet(_a$2, _a$2, "f", _SiteApi_instances_1).get(key);
         if (existing) return existing;
         __classPrivateFieldSet(this, _SiteApi_url, url, "f");
         __classPrivateFieldSet(this, _SiteApi_lists, new Map, "f");
-        __classPrivateFieldGet(_a$2, _a$2, "f", _SiteApi_instances).set(key, this);
+        __classPrivateFieldGet(_a$2, _a$2, "f", _SiteApi_instances_1).set(key, this);
     }
     list(title, options) {
         const key = title.toLowerCase();
@@ -2856,16 +3310,25 @@ class SiteApi {
     }
     async getLists() {
         const response = await spGET(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/lists`);
-        return response.value;
+        return response.value ?? [];
     }
     async getSiteGroups() {
         const response = await spGET(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/sitegroups`);
-        return response.value;
+        return response.value ?? [];
     }
     async getGroupUsers(group, options) {
-        const selector = typeof group === "number" ? `getbyid(${group})` : `getbyname('${group.replace(/'/g, "''")}')`;
+        const selector = __classPrivateFieldGet(this, _SiteApi_instances, "m", _SiteApi_groupSelector).call(this, group);
         const response = await spGET(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/sitegroups/${selector}/users`);
-        const users = response.value;
+        const seen = new Map;
+        for (const user of response.value ?? []) {
+            if (!isValidEmail(user.Email)) continue;
+            const key = normalizeEmail(user.Email);
+            const existing = seen.get(key);
+            if (!existing || !existing.Title && user.Title) {
+                seen.set(key, user);
+            }
+        }
+        const users = Array.from(seen.values());
         if (!options?.enrich) return users;
         return Promise.all(users.map(async user => {
             const profile = await getUserProfile(user.LoginName);
@@ -2874,6 +3337,52 @@ class SiteApi {
                 ...profile
             };
         }));
+    }
+    async getGroupUsersByEmail(group, email) {
+        const normalized = normalizeEmail(email);
+        if (!normalized || !isValidEmail(normalized)) {
+            console.warn("[SiteApi.getGroupUsersByEmail] empty/invalid email -- skipping request", {
+                email: email
+            });
+            return [];
+        }
+        const selector = __classPrivateFieldGet(this, _SiteApi_instances, "m", _SiteApi_groupSelector).call(this, group);
+        const filter = `Email eq '${escapeODataStr(normalized)}'`;
+        const url = `${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/sitegroups/${selector}/users` + `?$filter=${encodeURIComponent(filter)}` + `&$select=Id,LoginName,Title,Email`;
+        const response = await spGET(url);
+        return response.value ?? [];
+    }
+    async isUserInGroup(group, email) {
+        return (await this.getGroupUsersByEmail(group, email)).length > 0;
+    }
+    async getGroupMembersByIdentities(group, identities) {
+        const clauses = [];
+        for (const raw of identities.emails ?? []) {
+            const normalized = normalizeEmail(raw);
+            if (isValidEmail(normalized)) {
+                clauses.push(`Email eq '${escapeODataStr(normalized)}'`);
+            }
+        }
+        for (const raw of identities.logins ?? []) {
+            const login = raw?.trim();
+            if (login) {
+                clauses.push(`LoginName eq '${escapeODataStr(login)}'`);
+            }
+        }
+        if (clauses.length === 0) {
+            console.warn("[SiteApi.getGroupMembersByIdentities] no valid identifiers in identity set -- skipping request", {
+                identities: identities
+            });
+            return [];
+        }
+        const selector = __classPrivateFieldGet(this, _SiteApi_instances, "m", _SiteApi_groupSelector).call(this, group);
+        const filter = clauses.join(" or ");
+        const url = `${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/sitegroups/${selector}/users` + `?$filter=${encodeURIComponent(filter)}` + `&$select=Id,LoginName,Title,Email`;
+        const response = await spGET(url);
+        return response.value ?? [];
+    }
+    async isUserInGroupByIdentities(group, identities) {
+        return (await this.getGroupMembersByIdentities(group, identities)).length > 0;
     }
     getWebInfo() {
         return spGET(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web`);
@@ -2906,7 +3415,7 @@ class SiteApi {
     async deleteList(title) {
         this._validateTitle("deleteList", title);
         const digest = await this.getRequestDigest();
-        await spDELETE(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/lists/getbytitle('${title}')`, {
+        await spDELETE(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/lists/getbytitle('${escapeODataStr(title)}')`, {
             requestDigest: digest,
             headers: {
                 "IF-MATCH": "*"
@@ -2919,9 +3428,12 @@ class SiteApi {
     }
 }
 
-_a$2 = SiteApi, _SiteApi_url = new WeakMap, _SiteApi_lists = new WeakMap;
+_a$2 = SiteApi, _SiteApi_url = new WeakMap, _SiteApi_lists = new WeakMap, _SiteApi_instances = new WeakSet, 
+_SiteApi_groupSelector = function _SiteApi_groupSelector(group) {
+    return typeof group === "number" ? `getbyid(${group})` : `getbyname('${escapeODataStr(String(group))}')`;
+};
 
-_SiteApi_instances = {
+_SiteApi_instances_1 = {
     value: new Map
 };
 
@@ -2951,34 +3463,60 @@ function _unwrapD(data) {
     return data;
 }
 
-function _unwrapCollection(data) {
-    if (!data) return [];
-    if (Array.isArray(data)) return data;
-    if (typeof data === "object") {
-        const obj = data;
-        if (Array.isArray(obj.results)) return obj.results;
-        if (Array.isArray(obj.value)) return obj.value;
+function _scoreResult(r) {
+    let score = 0;
+    if (r.DisplayText) score++;
+    if (r.EntityData?.Email) score++;
+    if (r.EntityData?.Title) score++;
+    if (r.EntityData?.Department) score++;
+    if (r.EntityData?.MobilePhone) score++;
+    if (r.EntityData?.SIPAddress) score++;
+    if (r.EntityData?.PrincipalType) score++;
+    return score;
+}
+
+function _normalizeResults(results) {
+    const flat = [];
+    for (const r of results) {
+        flat.push(r);
+        if (Array.isArray(r.MultipleMatches) && r.MultipleMatches.length) {
+            flat.push(...r.MultipleMatches);
+        }
     }
-    return [];
+    const resolved = flat.filter(r => r.IsResolved === true);
+    const map = new Map;
+    for (const r of resolved) {
+        const rawKey = r.EntityData?.Email || parseEmployeeId(r.Key);
+        const key = rawKey.toLowerCase();
+        if (!key) {
+            console.warn("[searchUsers] dropping result with no email or login key", r);
+            continue;
+        }
+        const existing = map.get(key);
+        if (!existing || _scoreResult(r) > _scoreResult(existing)) {
+            map.set(key, r);
+        }
+    }
+    return [ ...map.values() ];
 }
 
 async function _resolveLoginName(login) {
     if (login.startsWith("i:")) return login;
-    const results = await searchUsers(login, {
-        maximumSuggestions: 10
+    const allResults = await searchUsers(login, {
+        maximumSuggestions: 10,
+        raw: true
     });
-    if (results.length === 0) return login;
-    if (results.length === 1) return results[0].Key;
+    const resolved = allResults.filter(r => r.IsResolved);
+    if (resolved.length === 0) return login;
+    if (resolved.length === 1) return resolved[0].Key;
     const currentLogin = _spPageContextInfo?.userLoginName ?? "";
     const prefixMatch = currentLogin.match(/^(i:[^|]+\|)/);
     if (prefixMatch) {
         const currentPrefix = prefixMatch[1];
-        const sameProvider = results.find(r => r.Key.startsWith(currentPrefix) && r.IsResolved);
+        const sameProvider = resolved.find(r => r.Key.startsWith(currentPrefix) && r.IsResolved);
         if (sameProvider) return sameProvider.Key;
     }
-    const resolved = results.find(r => r.IsResolved);
-    if (resolved) return resolved.Key;
-    return results[0].Key;
+    return resolved[0].Key;
 }
 
 async function _fetchProfile(loginName, siteUrl) {
@@ -3003,7 +3541,67 @@ async function _ensureUser(loginName, siteApi) {
 async function _fetchUserGroups(userId, siteUrl) {
     const endpoint = `${siteUrl}/_api/web/getuserbyid(${userId})/groups`;
     const data = await spGET(endpoint);
-    return _unwrapCollection(_unwrapD(data));
+    return unwrapCollection(_unwrapD(data));
+}
+
+async function _resolvePickerIdentity(normalizedLogin) {
+    try {
+        const samAccountName = parseEmployeeId(normalizedLogin);
+        const allResults = await searchUsers(samAccountName, {
+            maximumSuggestions: 20,
+            raw: true
+        });
+        const resolved = allResults.filter(r => r.IsResolved === true);
+        if (resolved.length === 0) return null;
+        let hit;
+        if (resolved.length === 1) {
+            hit = resolved[0];
+        } else {
+            hit = resolved.find(r => r.Key === normalizedLogin);
+            if (!hit) {
+                const prefixMatch = normalizedLogin.match(/^(i:[^|]+\|)/);
+                if (prefixMatch) {
+                    const prefix = prefixMatch[1];
+                    hit = resolved.find(r => r.Key.startsWith(prefix));
+                }
+            }
+            if (!hit) hit = resolved[0];
+        }
+        const seenLogins = new Set;
+        const seenEmails = new Set;
+        const allLogins = [];
+        const allEmails = [];
+        for (const r of resolved) {
+            const login = r.Key?.trim();
+            if (login) {
+                const key = login.toLowerCase();
+                if (!seenLogins.has(key)) {
+                    seenLogins.add(key);
+                    allLogins.push(login);
+                }
+            }
+            const email = r.EntityData?.Email?.trim();
+            if (email) {
+                const key = email.toLowerCase();
+                if (!seenEmails.has(key)) {
+                    seenEmails.add(key);
+                    allEmails.push(email);
+                }
+            }
+        }
+        return {
+            email: hit.EntityData?.Email || null,
+            displayName: hit.DisplayText || null,
+            allLogins: allLogins,
+            allEmails: allEmails
+        };
+    } catch (err) {
+        console.warn("[getFullUserDetails] picker identity resolution failed, falling back to profile/UIL values", {
+            normalizedLogin: normalizedLogin,
+            err: err
+        });
+        return null;
+    }
 }
 
 function parseEmployeeId(loginName) {
@@ -3020,8 +3618,21 @@ async function searchUsers(query, options = {}) {
         requestDigest: digest
     });
     const unwrapped = _unwrapD(data);
-    const raw = typeof unwrapped === "string" ? unwrapped : unwrapped.ClientPeoplePickerSearchUser;
-    return JSON.parse(raw);
+    const rawJson = typeof unwrapped === "string" ? unwrapped : unwrapped.ClientPeoplePickerSearchUser;
+    let parsed;
+    try {
+        parsed = JSON.parse(rawJson);
+    } catch (err) {
+        console.error("[searchUsers] JSON.parse failed -- response may be an HTML error page (session expiry?)", {
+            rawJson: rawJson,
+            err: err
+        });
+        throw new SystemError("PeoplePickerParseError", "searchUsers: failed to parse ClientPeoplePickerSearchUser response as JSON", {
+            breaksFlow: false,
+            cause: err
+        });
+    }
+    return options.raw ? parsed : _normalizeResults(parsed);
 }
 
 async function getUserProfile(loginName) {
@@ -3035,38 +3646,77 @@ async function getUserProfile(loginName) {
         jobTitle: profile.Title ?? "",
         pictureUrl: profile.PictureUrl ?? "",
         personalUrl: profile.PersonalUrl ?? "",
-        directReports: _unwrapCollection(profile.DirectReports),
-        managers: _unwrapCollection(profile.ExtendedManagers),
-        peers: _unwrapCollection(profile.Peers),
-        profileProperties: Object.fromEntries(_unwrapCollection(profile.UserProfileProperties).filter(p => p.Value).map(p => [ p.Key, p.Value ]))
+        directReports: unwrapCollection(profile.DirectReports),
+        managers: unwrapCollection(profile.ExtendedManagers),
+        peers: unwrapCollection(profile.Peers),
+        profileProperties: Object.fromEntries(unwrapCollection(profile.UserProfileProperties).filter(p => p.Value).map(p => [ p.Key, p.Value ]))
     };
 }
 
 async function getFullUserDetails(loginName, siteApi = new SiteApi) {
     const normalizedLogin = await _resolveLoginName(loginName);
-    const spUser = await _ensureUser(normalizedLogin, siteApi);
+    const [spUser, profileResult, picker] = await Promise.all([ _ensureUser(normalizedLogin, siteApi), _fetchProfile(normalizedLogin, siteApi.url).catch(err => {
+        console.warn("[getFullUserDetails] failed to fetch profile, continuing without it", {
+            loginName: normalizedLogin,
+            err: err
+        });
+        return null;
+    }), _resolvePickerIdentity(normalizedLogin) ]);
+    const profile = profileResult;
     let groups = [];
     try {
         groups = await _fetchUserGroups(spUser.Id, siteApi.url);
-    } catch {}
-    let profile = null;
-    try {
-        profile = await _fetchProfile(normalizedLogin, siteApi.url);
-    } catch {}
+    } catch (err) {
+        console.warn("[getFullUserDetails] failed to fetch groups, continuing without them", {
+            userId: spUser.Id,
+            err: err
+        });
+    }
+    const seenLogins = new Set;
+    const seenEmails = new Set;
+    const accountLogins = [];
+    const accountEmails = [];
+    const _addLogin = v => {
+        const s = v?.trim();
+        if (!s) return;
+        const k = s.toLowerCase();
+        if (!seenLogins.has(k)) {
+            seenLogins.add(k);
+            accountLogins.push(s);
+        }
+    };
+    const _addEmail = v => {
+        const s = v?.trim();
+        if (!s) return;
+        const k = s.toLowerCase();
+        if (!seenEmails.has(k)) {
+            seenEmails.add(k);
+            accountEmails.push(s);
+        }
+    };
+    if (picker) {
+        for (const login of picker.allLogins) _addLogin(login);
+        for (const email of picker.allEmails) _addEmail(email);
+    }
+    _addLogin(spUser.LoginName);
+    _addEmail(spUser.Email);
+    _addEmail(profile?.Email);
     return {
         employeeId: parseEmployeeId(spUser.LoginName),
         loginName: spUser.LoginName,
-        displayName: profile?.DisplayName ?? spUser.Title,
-        email: profile?.Email || spUser.Email,
+        displayName: picker?.displayName || profile?.DisplayName || spUser.Title,
+        email: picker?.email || profile?.Email || spUser.Email,
         siteUserId: spUser.Id,
         jobTitle: profile?.Title ?? "",
         pictureUrl: profile?.PictureUrl ?? "",
         personalUrl: profile?.PersonalUrl ?? "",
-        directReports: _unwrapCollection(profile?.DirectReports),
-        managers: _unwrapCollection(profile?.ExtendedManagers),
-        peers: _unwrapCollection(profile?.Peers),
+        directReports: unwrapCollection(profile?.DirectReports),
+        managers: unwrapCollection(profile?.ExtendedManagers),
+        peers: unwrapCollection(profile?.Peers),
         groups: groups,
-        profileProperties: Object.fromEntries(_unwrapCollection(profile?.UserProfileProperties).filter(p => p.Value).map(p => [ p.Key, p.Value ]))
+        profileProperties: Object.fromEntries(unwrapCollection(profile?.UserProfileProperties).filter(p => p.Value).map(p => [ p.Key, p.Value ])),
+        accountLogins: accountLogins,
+        accountEmails: accountEmails
     };
 }
 
@@ -3138,7 +3788,11 @@ class UserIdentity {
                     }
                 }
                 return new UserIdentity(String(rawEmail ?? ""), String(rawName ?? ""), properties);
-            } catch {
+            } catch (err) {
+                console.warn("[UserIdentity.fromField] failed to construct UserIdentity from field value, returning null", {
+                    raw: value,
+                    err: err
+                });
                 return null;
             }
         }
@@ -3152,13 +3806,28 @@ class UserIdentity {
         return [];
     }
     static fromSearchResult(result) {
-        return new UserIdentity(result.EntityData?.Email ?? "", result.DisplayText);
+        const email = result.EntityData?.Email?.trim();
+        if (!email) {
+            console.warn("[UserIdentity.fromSearchResult] search result has no email -- skipping", {
+                displayText: result.DisplayText
+            });
+            return null;
+        }
+        return new UserIdentity(email, result.DisplayText);
     }
     static fromCurrentUser(user) {
         return new UserIdentity(user.get("email"), user.get("displayName"));
     }
     async fetchFullDetails() {
-        __classPrivateFieldSet(this, _UserIdentity_details, await getFullUserDetails(this.email), "f");
+        try {
+            __classPrivateFieldSet(this, _UserIdentity_details, await getFullUserDetails(this.email), "f");
+        } catch (err) {
+            console.error("[UserIdentity.fetchFullDetails] failed to fetch full user details", {
+                email: this.email,
+                err: err
+            });
+            throw err;
+        }
     }
     toString() {
         return this.displayName;
@@ -3186,10 +3855,11 @@ class PeoplePicker extends ComboBox {
         this._debouncedSearch = debounce(query => this._executeSearch(query), debounceMs ?? 300);
     }
     async _executeSearch(query) {
-        this.instance?.addClass("form-control--loading");
+        const seq = ++this._searchSeq;
+        this._setLoading(true);
         try {
             const results = await searchUsers(query, this._searchOptions);
-            if (!this.isAlive) return;
+            if (!this.isAlive || seq !== this._searchSeq) return;
             this._lastSearchResults = results;
             const options = results.reduce((acc, r) => {
                 if (!r.EntityData?.Email || !r.DisplayText) {
@@ -3211,10 +3881,17 @@ class PeoplePicker extends ComboBox {
                 this._dataset = options;
             }
             this._filteredDataset = this._dataset;
-            this._refreshDropdownList();
+        } catch (err) {
+            if (!this.isAlive || seq !== this._searchSeq) return;
+            console.error("[PeoplePicker] user search failed", {
+                query: query,
+                err: err
+            });
+            this._hasError = true;
         } finally {
-            if (this.isAlive) {
-                this.instance?.removeClass("form-control--loading");
+            if (this.isAlive && seq === this._searchSeq) {
+                this._isLoading = false;
+                this._refreshDropdownList();
             }
         }
     }
@@ -3225,6 +3902,7 @@ class PeoplePicker extends ComboBox {
             if (!event?.key.match(/^[\w\s]$/) && event?.key !== "Backspace" && event?.key !== "Delete") return;
             const value = input.val()?.toString() || "";
             if (value.length >= this._minimumCharacters) {
+                this._setLoading(true);
                 this._debouncedSearch(value);
             } else {
                 this._debouncedSearch.cancel();
@@ -3236,9 +3914,17 @@ class PeoplePicker extends ComboBox {
                     this._dataset = [];
                     this._filteredDataset = [];
                 }
+                this._isLoading = false;
                 this._refreshDropdownList();
             }
         });
+    }
+    _emptyMessage() {
+        const input = this.instance?.find(`.${this.topClassBEM}__searchbar__input`);
+        const len = input?.val()?.toString().length ?? 0;
+        if (len === 0) return escapeHtml("Type to search people");
+        if (len < this._minimumCharacters) return escapeHtml(`Type at least ${this._minimumCharacters} characters`);
+        return super._emptyMessage();
     }
     remove() {
         this._debouncedSearch.cancel();
@@ -3246,7 +3932,7 @@ class PeoplePicker extends ComboBox {
     }
     async resolveUser(identifier) {
         if (!identifier) return null;
-        this.instance?.addClass("form-control--loading");
+        this._setLoading(true);
         try {
             const results = await searchUsers(identifier, this._searchOptions);
             if (!this.isAlive || results.length === 0) return null;
@@ -3279,7 +3965,7 @@ class PeoplePicker extends ComboBox {
             return match;
         } finally {
             if (this.isAlive) {
-                this.instance?.removeClass("form-control--loading");
+                this._setLoading(false);
             }
         }
     }
@@ -3317,6 +4003,12 @@ class DateInput extends FormControl {
         this._viewDate = dayjs();
         this._selectedDate = null;
         this._isCalendarOpen = false;
+    }
+    get labelTarget() {
+        return `${this.id}-input`;
+    }
+    get defaultLabelPosition() {
+        return "top";
     }
     _trackTimeout(fn, ms) {
         const id = setTimeout(() => {
@@ -3415,51 +4107,41 @@ class DateInput extends FormControl {
         this.instance?.find(`.${this.topClassBEM}__input`).val(this._value.value);
         if (this._value.wasTouched) this._validate();
     }
-    setDate(date) {
-        this._selectedDate = date;
-        this._viewDate = date;
-        this._value.value = date.format(this._dayjsFormat);
-        this.instance?.find(`.${this.topClassBEM}__input`).val(this._value.value);
-        if (this._value.wasTouched) this._validate();
-    }
     _bindDayClickHandlers() {
         const bemDay = `${this.topClassBEM}__calendar__day`;
-        this.instance?.find(`.${bemDay}:not(.${bemDay}--empty)`).each((_, el) => {
-            $(el).on("click", e => {
-                e.stopPropagation();
-                const dateStr = $(el).attr("data-date");
-                if (dateStr) this._applyDateSelection(dayjs(dateStr));
-            });
-        });
+        const daySelector = `.${bemDay}:not(.${bemDay}--empty)`;
+        this._addManagedListener("click", e => {
+            e.stopPropagation();
+            const dateStr = $(e.target).closest("[data-date]").attr("data-date");
+            if (dateStr) this._applyDateSelection(dayjs(dateStr));
+        }, daySelector);
     }
     _applyEventListeners() {
         super._applyEventListeners();
-        this.instance?.find(`.${this.topClassBEM}__input-wrapper`).on("click", () => {
+        this._addManagedListener("click", () => {
             if (!this._isDisabled && !this._isCalendarOpen) this._openCalendar();
-        });
-        const input = this.instance?.find(`.${this.topClassBEM}__input`);
-        input?.on("blur", () => {
+        }, `.${this.topClassBEM}__input-wrapper`);
+        this._addManagedListener("blur", () => {
             this._trackTimeout(() => this._syncValueFromInput(), 150);
-        });
-        this.instance?.on("keydown", e => {
+        }, `.${this.topClassBEM}__input`);
+        this._addManagedListener("keydown", e => {
             if (e.originalEvent?.key === "Escape") this._closeCalendar();
         });
-        this.instance?.find(`.${this.topClassBEM}__calendar__prev`).on("click", e => {
+        this._addManagedListener("click", e => {
             e.stopPropagation();
             this._viewDate = this._viewDate.subtract(1, "month");
             this._refreshCalendarContent();
-        });
-        this.instance?.find(`.${this.topClassBEM}__calendar__next`).on("click", e => {
+        }, `.${this.topClassBEM}__calendar__prev`);
+        this._addManagedListener("click", e => {
             e.stopPropagation();
             this._viewDate = this._viewDate.add(1, "month");
             this._refreshCalendarContent();
-        });
-        this._bindDayClickHandlers();
-        this.instance?.find(`.${this.topClassBEM}__calendar__today`).on("click", e => {
+        }, `.${this.topClassBEM}__calendar__next`);
+        this._addManagedListener("click", e => {
             e.stopPropagation();
             this._applyDateSelection(dayjs());
-        });
-        this.instance?.on("focusout", () => {
+        }, `.${this.topClassBEM}__calendar__today`);
+        this._addManagedListener("focusout", () => {
             this._trackTimeout(() => {
                 const active = document.activeElement;
                 if (!this.instance?.[0]?.contains(active)) {
@@ -3467,6 +4149,27 @@ class DateInput extends FormControl {
                 }
             }, 0);
         });
+        this._bindDayClickHandlers();
+    }
+    set isDisabled(flag) {
+        if (this._isCalendarOpen) {
+            this._closeCalendar();
+            this._isCalendarOpen = false;
+        }
+        super.isDisabled = flag;
+    }
+    get isDisabled() {
+        return super.isDisabled;
+    }
+    set isLoading(flag) {
+        if (flag && this._isCalendarOpen) {
+            this._closeCalendar();
+            this._isCalendarOpen = false;
+        }
+        super.isLoading = flag;
+    }
+    get isLoading() {
+        return super.isLoading;
     }
     get modifierClasses() {
         const mods = [ super.modifierClasses ];
@@ -3474,7 +4177,7 @@ class DateInput extends FormControl {
         return mods.join(" ");
     }
     toString() {
-        return `<div\n      id="${this.id}"\n      class="${this.class} ${this.modifierClasses}"\n      tabindex="-1"\n    >\n      <div class="${this.topClassBEM}__input-wrapper">\n        <input\n          class="${this.topClassBEM}__input"\n          type="text"\n          autocomplete="off"\n          placeholder="${escapeAttr(this._placeholder)}"\n          value="${escapeAttr(this._selectedDate ? this._selectedDate.format(this._dayjsFormat) : this._value.value)}"\n          ${this._isDisabled ? "disabled" : ""}\n        />\n        <span class="${this.topClassBEM}__icon">\n          ${getIcon("calendar-line")}\n        </span>\n      </div>\n      ${this._createCalendarPanel()}\n    </div>`;
+        return `<div\n      id="${this.id}"\n      class="${this.class} ${this.modifierClasses}"\n      tabindex="-1"\n    >\n      <div class="${this.topClassBEM}__input-wrapper">\n        <input\n          id="${this.id}-input"\n          class="${this.topClassBEM}__input"\n          type="text"\n          autocomplete="off"\n          placeholder="${escapeAttr(this._placeholder)}"\n          value="${escapeAttr(this._selectedDate ? this._selectedDate.format(this._dayjsFormat) : this._value.value)}"\n          ${this._isDisabled ? "disabled" : ""}\n        />\n        <span class="${this.topClassBEM}__icon">\n          ${getIcon("calendar-line")}\n        </span>\n      </div>\n      ${this._createCalendarPanel()}\n    </div>`;
     }
     render() {
         super.render(false);
@@ -3484,8 +4187,6 @@ class DateInput extends FormControl {
         super.remove();
     }
 }
-
-dayjs.extend(customParseFormat);
 
 class DateRangeInput extends HTMDElement {
     constructor(startField, endField, props = {}) {
@@ -3691,9 +4392,12 @@ class DateRangeInput extends HTMDElement {
                 this._endDate = clicked;
             }
             this._syncing = true;
-            this.startField.value = this._startDate.format(this._dayjsFormat);
-            this.endField.value = this._endDate.format(this._dayjsFormat);
-            this._syncing = false;
+            try {
+                this.startField.value = this._startDate.format(this._dayjsFormat);
+                this.endField.value = this._endDate.format(this._dayjsFormat);
+            } finally {
+                this._syncing = false;
+            }
             this._selectingEnd = false;
             this._hoverDate = null;
             this._syncInputDisplay();
@@ -3764,32 +4468,32 @@ class DateRangeInput extends HTMDElement {
     _applyEventListeners() {
         super._applyEventListeners();
         const bem = this.topClassBEM;
-        this.instance?.find(`.${bem}__input-wrapper`).on("click", () => {
+        this._addManagedListener("click", () => {
             if (this._isDisabled) return;
             if (this._isPanelOpen) {
                 this._closePanel();
             } else {
                 this._openPanel();
             }
-        });
-        this.instance?.find(`.${bem}__panel__prev`).on("click", e => {
+        }, `.${bem}__input-wrapper`);
+        this._addManagedListener("click", e => {
             e.stopPropagation();
             this._viewDate = this._viewDate.subtract(1, "month");
             this._refreshPanelContent();
-        });
-        this.instance?.find(`.${bem}__panel__next`).on("click", e => {
+        }, `.${bem}__panel__prev`);
+        this._addManagedListener("click", e => {
             e.stopPropagation();
             this._viewDate = this._viewDate.add(1, "month");
             this._refreshPanelContent();
-        });
+        }, `.${bem}__panel__next`);
         this._bindDayHandlers();
-        this.instance?.find(`.${bem}__panel`).on("mouseleave", () => {
+        this._addManagedListener("mouseleave", () => {
             this._clearHoverPreview();
-        });
-        this.instance?.on("keydown", e => {
+        }, `.${bem}__panel`);
+        this._addManagedListener("keydown", e => {
             if (e.originalEvent?.key === "Escape") this._closePanel();
         });
-        this.instance?.on("focusout", () => {
+        this._addManagedListener("focusout", () => {
             this._trackTimeout(() => {
                 const active = document.activeElement;
                 if (!this.instance?.[0]?.contains(active)) {
@@ -3831,41 +4535,26 @@ class DateRangeInput extends HTMDElement {
     }
 }
 
-class NumberInput extends FormControl {
+class NumberInput extends DebouncedInput {
     constructor(fieldOrValue, props) {
         super(fieldOrValue, props);
         this.min = props?.min;
         this.step = props?.step;
         this.max = props?.max;
-        this._debouncedSync = debounce(() => this._syncValue(), props?.debounceMs ?? 300);
     }
     _syncValue() {
-        this._value.value = Number(this.instance?.val());
-        if (this._value.wasTouched) {
-            this._validate();
-        }
-    }
-    _applyEventListeners() {
-        super._applyEventListeners();
-        this.setEventHandler("input", () => {
-            this._debouncedSync();
-        });
-        this.setEventHandler("blur", () => {
-            this._debouncedSync.cancel();
-            this._syncValue();
-        });
-    }
-    remove() {
-        this._debouncedSync.cancel();
-        super.remove();
+        const raw = this.instance?.val();
+        if (raw == null || raw === "") return;
+        this._value.value = Number(raw);
+        this._validate();
     }
     toString() {
-        const addAttrFromProp = prop => this[prop] ? `${prop}=${this[prop]}` : "";
+        const addAttrFromProp = prop => this[prop] != null ? `${prop}="${this[prop]}"` : "";
         return `<input\n                    title="${escapeAttr(String(this.value))}"\n                    id="${this.id}"\n                    class="${this.class} ${super.modifierClasses}"\n                    type="number"\n                    autocomplete="off"\n                    tabindex=0\n                    ${this.isDisabled ? "disabled" : ""}\n                    value="${escapeAttr(String(this._value.value))}"\n                    ${addAttrFromProp("min")}\n                    ${addAttrFromProp("step")}\n                    ${addAttrFromProp("max")}\n                    />`;
     }
 }
 
-class TextArea extends FormControl {
+class TextArea extends DebouncedInput {
     constructor(fieldOrValue, props = {}) {
         super(fieldOrValue, props);
         this.placeholder = props?.placeholder ?? "";
@@ -3875,7 +4564,6 @@ class TextArea extends FormControl {
         this.maxLength = props?.maxLength;
         this.resize = props?.resize ?? "vertical";
         this.autoResize = props?.autoResize ?? false;
-        this._debouncedSync = debounce(() => this._syncValue(), props?.debounceMs ?? 300);
     }
     _syncValue() {
         this._value.value = this.instance?.val();
@@ -3887,20 +4575,8 @@ class TextArea extends FormControl {
         el.style.height = "auto";
         el.style.height = el.scrollHeight + "px";
     }
-    _applyEventListeners() {
-        super._applyEventListeners();
-        this.setEventHandler("input", () => {
-            this._debouncedSync();
-            if (this.autoResize) this._autoResize();
-        });
-        this.setEventHandler("blur", () => {
-            this._debouncedSync.cancel();
-            this._syncValue();
-        });
-    }
-    remove() {
-        this._debouncedSync.cancel();
-        super.remove();
+    _onInput() {
+        if (this.autoResize) this._autoResize();
     }
     toString() {
         const addAttrFromProp = (attr, value) => value != null ? `${attr}="${value}"` : "";
@@ -3908,32 +4584,17 @@ class TextArea extends FormControl {
     }
 }
 
-class TextInput extends FormControl {
+class TextInput extends DebouncedInput {
     constructor(fieldOrValue, props) {
         super(fieldOrValue, props);
         this.spellcheck = props?.spellcheck ?? false;
         this.autocomplete = props?.autocomplete ?? false;
         this.hideChars = props?.hideChars ?? false;
         this.placeholder = props?.placeholder ?? "";
-        this._debouncedSync = debounce(() => this._syncValue(), props?.debounceMs ?? 300);
     }
     _syncValue() {
         this._value.value = this.instance?.val();
         this._validate();
-    }
-    _applyEventListeners() {
-        super._applyEventListeners();
-        this.setEventHandler("input", () => {
-            this._debouncedSync();
-        });
-        this.setEventHandler("blur", () => {
-            this._debouncedSync.cancel();
-            this._syncValue();
-        });
-    }
-    remove() {
-        this._debouncedSync.cancel();
-        super.remove();
     }
     toString() {
         const safeValue = escapeAttr(String(this.value).trim());
@@ -3945,6 +4606,12 @@ class CheckBox extends FormControl {
     constructor(fieldOrValue, props) {
         super(fieldOrValue, props);
     }
+    get labelTarget() {
+        return `${this.id}-input`;
+    }
+    get defaultLabelPosition() {
+        return "left";
+    }
     _applyEventListeners() {
         super._applyEventListeners();
         this.setEventHandler("change", e => {
@@ -3954,7 +4621,7 @@ class CheckBox extends FormControl {
         });
     }
     toString() {
-        return `<label \n                 id="${this.id}"\n                 class="${this.class} ${super.modifierClasses} " \n                 tabindex=0\n             >\n                 <input id="${this.id}-input" type="checkbox" ${this._value.value ? "checked" : ""}/>\n                 ${getIcon("check-line")}\n             </label>`;
+        return `<label\n                 id="${this.id}"\n                 class="${this.class} ${super.modifierClasses} "\n                 tabindex=0\n             >\n                 <input id="${this.id}-input" type="checkbox" ${this._value.value ? "checked" : ""}/>\n                 ${getIcon("check-line")}\n             </label>`;
     }
 }
 
@@ -3972,17 +4639,16 @@ class List extends HTMDElement {
         return `<tr class="${this.topClassBEM}__header ${this.topClassBEM}__row">${reduce(data, (acc, item) => acc += `<th class="${this.topClassBEM}__col " title="${escapeAttr(String(item))}">\n        <span class="${this.topClassBEM}__header__text">${escapeHtml(String(item))}</span>\n        <div class="${this.topClassBEM}__header__order-icons">\n          <span class="${this.topClassBEM}__header__ascending-icon">${getIcon("sort-asc")}</span>\n          <span class="${this.topClassBEM}__header__descending-icon">${getIcon("sort-desc")}</span>\n        </div>\n        </th>`, "")}</tr>`;
     }
     _createRow(data, emptyRow) {
-        return `<tr \n              class="${this.topClassBEM}__row ${emptyRow ? `${this.topClassBEM}__row--empty` : ""}"\n            >${reduce(data, (acc, item) => acc += `<td class="${this.topClassBEM}__col" title="${escapeAttr(String(item))}" ${emptyRow ? `colspan=${this.headers.length}` : ""}>${escapeHtml(String(item))}</td>`, "")}</tr>`;
+        return `<tr\n              class="${this.topClassBEM}__row ${emptyRow ? `${this.topClassBEM}__row--empty` : ""}"\n            >${reduce(data, (acc, item) => acc += `<td class="${this.topClassBEM}__col" title="${escapeAttr(String(item))}" ${emptyRow ? `colspan=${this.headers.length}` : ""}>${escapeHtml(String(item))}</td>`, "")}</tr>`;
     }
     _createListItems(list = this._data) {
         return list.length === 0 ? this._createRow([ this.emptyListMessage ], true) : reduce(list, (acc, item) => acc += this._createRow(item), "");
     }
     toString() {
-        return `<div id="${this.id}" class="${this.class}">\n                <table \n                    class="${this.topClassBEM}__table"\n                    tabindex='-1'\n                >\n                          <thead>${this._createHeaders(this.headers)}</thead>\n                          <tbody>${this._createListItems(this._orderedData)}</tbody>\n                </table>\n            </div>\n                `;
+        return `<div id="${this.id}" class="${this.class}">\n                <table\n                    class="${this.topClassBEM}__table"\n                    tabindex='-1'\n                >\n                          <thead>${this._createHeaders(this.headers)}</thead>\n                          <tbody>${this._createListItems(this._orderedData)}</tbody>\n                </table>\n            </div>\n                `;
     }
     _refreshDataset(data) {
         this.instance?.find("tbody").html(this._createListItems(data));
-        this._applyDatasetEventListeners();
     }
     _defaultOrderingFn(headerIndex, order) {
         if (order) {
@@ -4007,35 +4673,31 @@ class List extends HTMDElement {
             return "asc";
         }
     }
-    _handleHeaderSortEvent(element, index) {
-        element.on("click", () => {
-            const order = this._applySortClass(element, index);
+    _applyHeaderSortListener() {
+        const headerColSelector = `.${this.topClassBEM}__header .${this.topClassBEM}__col`;
+        this._addManagedListener("click", e => {
+            const th = $(e.currentTarget);
+            const index = th.parent().children(`.${this.topClassBEM}__col`).index(th);
+            const order = this._applySortClass(th, index);
             this._orderedData = this._defaultOrderingFn(index, order);
             this._refreshDataset(this._orderedData);
-        });
+        }, headerColSelector);
     }
-    _onHeaderSortEventListeners() {
-        const headers = this.instance?.find(`.${this.topClassBEM}__header .${this.topClassBEM}__col`);
-        forEach(headers, (h, i) => this._handleHeaderSortEvent($(h), i));
-    }
-    _onItemSelectEventListeners() {
-        if (!this?.onItemSelectHandler || this.data.length === 0) {
-            return;
-        }
-        const elements = this.instance?.find(`tbody .${this.topClassBEM}__row`);
-        forEach(elements, (el, index) => {
-            $(el).on("click", () => {
+    _applyRowSelectListener() {
+        if (!this.onItemSelectHandler || this.data.length === 0) return;
+        const rowSelector = `tbody .${this.topClassBEM}__row`;
+        this._addManagedListener("click", e => {
+            const row = $(e.currentTarget);
+            const index = this.instance?.find(rowSelector).index(row) ?? -1;
+            if (index >= 0 && index < this._orderedData.length) {
                 this.onItemSelectHandler(this._orderedData[index]);
-            });
-        });
-    }
-    _applyDatasetEventListeners() {
-        this._onItemSelectEventListeners();
+            }
+        }, rowSelector);
     }
     _applyEventListeners() {
         super._applyEventListeners();
-        this._onHeaderSortEventListeners();
-        this._applyDatasetEventListeners();
+        this._applyHeaderSortListener();
+        this._applyRowSelectListener();
     }
     set data(data) {
         this._data = data;
@@ -4066,7 +4728,13 @@ class Image extends HTMDElement {
     }
     _preloader() {
         const $imgElement = this.instance?.find("img");
-        if (!$imgElement) return;
+        if (!$imgElement) {
+            console.warn("[Image._preloader] img element not found inside rendered component -- image will not load", {
+                id: this.id,
+                src: this._src
+            });
+            return;
+        }
         $imgElement.on("load", () => {
             this.instance?.css("opacity", "1");
             this._onLoadCallback();
@@ -4085,9 +4753,13 @@ class Image extends HTMDElement {
     }
 }
 
+function runtimeEventName(className) {
+    return className.toLowerCase();
+}
+
 class RuntimeEvent extends Event {
     constructor(eventTarget, options) {
-        const eventType = new.target.name.toLowerCase();
+        const eventType = runtimeEventName(new.target.name);
         super(eventType, {
             bubbles: options?.bubbles ?? true,
             cancelable: options?.cancelable ?? true
@@ -4125,7 +4797,7 @@ class NavigationEvent extends RuntimeEvent {
         __classPrivateFieldSet(this, _NavigationEvent_query, query, "f");
     }
     static listener(callback, options) {
-        return RuntimeEvent._createListener("navigationevent", callback, window, options);
+        return RuntimeEvent._createListener(runtimeEventName(NavigationEvent.name), callback, window, options);
     }
     get to() {
         return __classPrivateFieldGet(this, _NavigationEvent_to, "f");
@@ -4156,6 +4828,8 @@ class BreakingErrorDialog {
             variant: "error",
             title: error.name,
             class: "error-dialog",
+            containerSelector: "body",
+            closeOnFocusLoss: false,
             content: [ new Text(error.message), new Text(error.stack, {
                 class: "error-dialog__stack-trace"
             }), new Text("If this error persists, please copy the error message and send it to the support team.") ],
@@ -4169,8 +4843,7 @@ class BreakingErrorDialog {
             }), new Button("Reload Page", {
                 onClickHandler: () => location.reload(),
                 variant: "danger"
-            }) ],
-            containerSelector: "body"
+            }) ]
         });
     }
     _generateClipboardData(error) {
@@ -4178,7 +4851,7 @@ class BreakingErrorDialog {
         try {
             user = new CurrentUser;
         } catch (e) {
-            console.error("Failed to load user data:", e.message);
+            console.error("[BreakingErrorDialog._generateClipboardData] failed to load user data", e);
         }
         return JSON.stringify({
             error: error.toJSON(),
@@ -4191,10 +4864,7 @@ class BreakingErrorDialog {
     }
     render() {
         this._dialog.render();
-        this._dialog.instance?.prependTo(`body`);
-        setTimeout(() => {
-            this._dialog.open();
-        }, 0);
+        this._dialog.open();
     }
 }
 
@@ -4204,10 +4874,13 @@ class ErrorBoundary {
         this._onErrorCallback = props?.onErrorCallback;
         this._onAsyncErrorCallback = props?.onAsyncErrorCallback;
         this._name = props?.name || generateRuntimeUID(`error-boundary`);
+        this._boundErrorHandler = e => this._onErrorEventHandler(e);
+        this._boundRejectionHandler = e => this._onAsyncErrorEventHandler(e);
         this._addEventListeners();
     }
     async _displayError(error) {
         if (error.breaksFlow) {
+            console.error("[ErrorBoundary._displayError] breaking error -- rendering BreakingErrorDialog", error);
             new BreakingErrorDialog(error).render();
         } else {
             console.error(error);
@@ -4217,30 +4890,58 @@ class ErrorBoundary {
     _parseEventData(event) {
         if (event instanceof ErrorEvent && event.error instanceof Error) {
             return SystemError.fromErrorEvent(event);
-        } else {
-            return new SystemError(`Unknown Error`, "ErrorBoundary was triggered by an unknown event");
         }
-    }
-    _onErrorEventHandler() {
-        this._targetElement.addEventListener("error", e => {
-            console.warn(`Error caught by ${this._name} ErrorBoundary`);
-            console.error(e);
-            const error = this._parseEventData(e);
-            this._displayError(error);
-            e.preventDefault();
-            if (this._onErrorCallback) this._onErrorCallback(e);
+        if (event instanceof ErrorEvent) {
+            const msg = [ event.message, event.filename ? `at ${event.filename}:${event.lineno}:${event.colno}` : "" ].filter(Boolean).join(" ");
+            return new SystemError("ScriptError", msg || "An unhandled script error occurred", {
+                cause: event
+            });
+        }
+        const type = event.type ?? "unknown";
+        const target = event.target?.tagName?.toLowerCase() ?? "unknown";
+        return new SystemError("ResourceError", `Unhandled ${type} event on <${target}>`, {
+            cause: event
         });
     }
-    _onAsyncErrorEventHandler() {
-        this._targetElement.addEventListener("unhandledrejection", e => {
-            console.warn(`Unhandled promise rejection caught by ${this._name} ErrorBoundary`);
-            reportError(e.reason);
-            if (this._onAsyncErrorCallback) this._onAsyncErrorCallback(e);
-        });
+    _onErrorEventHandler(e) {
+        console.warn(`Error caught by ${this._name} ErrorBoundary`);
+        console.error(e);
+        const error = this._parseEventData(e);
+        this._displayError(error);
+        e.preventDefault();
+        if (this._onErrorCallback) this._onErrorCallback(e);
+    }
+    _onAsyncErrorEventHandler(e) {
+        console.warn(`Unhandled promise rejection caught by ${this._name} ErrorBoundary`);
+        const reason = e.reason;
+        let error;
+        if (reason instanceof SystemError) {
+            error = reason;
+        } else if (reason instanceof Error) {
+            error = new SystemError(reason.name || "UnhandledRejection", reason.message, {
+                cause: reason
+            });
+            error.stack = reason.stack;
+        } else {
+            const msg = reason != null ? `Unhandled rejection: ${String(reason)}` : "Unhandled promise rejection with no reason";
+            error = new SystemError("UnhandledRejection", msg, {
+                cause: reason
+            });
+        }
+        if (!error.breaksFlow) {
+            console.error("[ErrorBoundary] non-breaking unhandled rejection", error);
+        }
+        this._displayError(error);
+        e.preventDefault();
+        if (this._onAsyncErrorCallback) this._onAsyncErrorCallback(e);
     }
     _addEventListeners() {
-        this._onErrorEventHandler();
-        this._onAsyncErrorEventHandler();
+        this._targetElement.addEventListener("error", this._boundErrorHandler);
+        this._targetElement.addEventListener("unhandledrejection", this._boundRejectionHandler);
+    }
+    dispose() {
+        this._targetElement.removeEventListener("error", this._boundErrorHandler);
+        this._targetElement.removeEventListener("unhandledrejection", this._boundRejectionHandler);
     }
 }
 
@@ -4269,7 +4970,14 @@ class StyleResource {
             link.onerror = () => {
                 link.remove();
                 this._link = null;
-                reject();
+                const err = new SystemError("StyleResourceLoadError", `Failed to load stylesheet: ${this._path}`, {
+                    breaksFlow: false
+                });
+                console.error("[StyleResource._loadFile] stylesheet load failed", {
+                    path: this._path,
+                    err: err
+                });
+                reject(err);
             };
             document.head.appendChild(link);
             this._link = link;
@@ -4295,18 +5003,27 @@ class Route extends View {
         this.title = props.title ?? _spPageContextInfo?.webTitle ?? $(`head title`)[0].textContent ?? "undefined";
         this._routeStyle = props?.routeStylePath ? new StyleResource(props.routeStylePath) : undefined;
     }
+    registerCleanupRunner(fn) {
+        this._cleanupRunner = fn;
+    }
+    remove() {
+        this._cleanupRunner?.();
+        super.remove();
+    }
     hide(duration, onCompleteCallback) {
-        super.hide(duration, () => {
+        return super.hide(duration, () => {
             this._routeStyle?.disable();
             if (onCompleteCallback) onCompleteCallback();
         });
     }
     async show(duration, onCompleteCallback) {
         if (this._routeStyle) {
-            await this._routeStyle.ready.catch(() => {});
+            await this._routeStyle.ready.catch(err => {
+                console.warn("[Route.show] route style failed to load", err);
+            });
         }
         this._routeStyle?.enable();
-        super.show(duration, () => {
+        return super.show(duration, () => {
             if (onCompleteCallback) onCompleteCallback();
         });
     }
@@ -4319,7 +5036,7 @@ class Route extends View {
     }
 }
 
-var _Router_instances, _a$1, _Router_containerSelector, _Router_routesMap, _Router_routePaths, _Router_errorBoundary, _Router_navigationId, _Router_lastPath, _Router_notFoundRoute, _Router_unauthorizedRoute, _Router_navigationGuard, _Router_beforeUnloadHandler, _Router_checkSingletonInstance, _Router_createUrls;
+var _Router_instances, _a$1, _Router_containerSelector, _Router_routesMap, _Router_routePaths, _Router_errorBoundary, _Router_navigationId, _Router_lastPath, _Router_notFoundRoute, _Router_unauthorizedRoute, _Router_navigationGuard, _Router_beforeUnloadHandler, _Router_routerReady, _Router_guardInFlight, _Router_checkSingletonInstance, _Router_createUrls;
 
 class Router {
     static navigateTo(path, options) {
@@ -4334,10 +5051,16 @@ class Router {
         _a$1._runtimeInstance._popLevel(x);
     }
     static unauthorized() {
+        var _b, _c;
         __classPrivateFieldGet(_a$1, _a$1, "m", _Router_checkSingletonInstance).call(_a$1);
         _a$1.clearNavigationGuard();
         const instance = _a$1._runtimeInstance;
+        const navId = __classPrivateFieldSet(_b = instance, _Router_navigationId, (_c = __classPrivateFieldGet(_b, _Router_navigationId, "f"), 
+        ++_c), "f");
+        const outgoing = __classPrivateFieldGet(instance, _Router_lastPath, "f") ? __classPrivateFieldGet(instance, _Router_routesMap, "f").get(__classPrivateFieldGet(instance, _Router_lastPath, "f")) : undefined;
+        if (outgoing?.isAlive) outgoing.remove();
         instance._cleanup();
+        if (navId !== __classPrivateFieldGet(instance, _Router_navigationId, "f")) return;
         instance._applyRoute(__classPrivateFieldGet(instance, _Router_unauthorizedRoute, "f"));
     }
     static setNavigationGuard(guardFn) {
@@ -4392,6 +5115,8 @@ class Router {
         _Router_unauthorizedRoute.set(this, void 0);
         _Router_navigationGuard.set(this, void 0);
         _Router_beforeUnloadHandler.set(this, void 0);
+        _Router_routerReady.set(this, false);
+        _Router_guardInFlight.set(this, false);
         if (!_a$1._runtimeInstance && routeRelativePaths) {
             __classPrivateFieldSet(this, _Router_containerSelector, props?.containerSelector ?? "#root", "f");
             __classPrivateFieldSet(this, _Router_errorBoundary, props?.enableErrorBoundary === false ? undefined : new ErrorBoundary({
@@ -4424,14 +5149,26 @@ class Router {
             defaultRoute.containerSelector = __classPrivateFieldGet(this, _Router_containerSelector, "f");
             __classPrivateFieldSet(this, _Router_unauthorizedRoute, defaultRoute, "f");
         }
+        __classPrivateFieldSet(this, _Router_routerReady, true, "f");
         this._refreshCurrentPage();
     }
     _createDefaultNotFoundRoute() {
         let redirectTimer;
-        const route = new Route({
+        const clearRedirectTimer = () => {
+            if (redirectTimer) {
+                clearTimeout(redirectTimer);
+                redirectTimer = undefined;
+            }
+        };
+        const route = new class NotFoundRoute extends Route {
+            remove() {
+                clearRedirectTimer();
+                super.remove();
+            }
+        }({
             title: "Page Not Found",
             onRefreshHandler: () => {
-                if (redirectTimer) clearTimeout(redirectTimer);
+                clearRedirectTimer();
                 route.children = [ new Container([ new Text("404 - Page Not Found", {
                     type: "h1"
                 }), new Text(`The path "${_a$1.location}" does not exist.`), new Text("You will be redirected to the home page in 8 seconds.") ], {
@@ -4460,7 +5197,8 @@ class Router {
     [(_Router_containerSelector = new WeakMap, _Router_routesMap = new WeakMap, _Router_routePaths = new WeakMap, 
     _Router_errorBoundary = new WeakMap, _Router_navigationId = new WeakMap, _Router_lastPath = new WeakMap, 
     _Router_notFoundRoute = new WeakMap, _Router_unauthorizedRoute = new WeakMap, _Router_navigationGuard = new WeakMap, 
-    _Router_beforeUnloadHandler = new WeakMap, _Router_instances = new WeakSet, _Router_checkSingletonInstance = function _Router_checkSingletonInstance() {
+    _Router_beforeUnloadHandler = new WeakMap, _Router_routerReady = new WeakMap, _Router_guardInFlight = new WeakMap, 
+    _Router_instances = new WeakSet, _Router_checkSingletonInstance = function _Router_checkSingletonInstance() {
         if (!_a$1._runtimeInstance) throw new SystemError(`InternalError`, `Router is not initialized. Router follows the singleton pattern. Please initialize the router with valid routes at the top of your application`);
     }, Symbol.toStringTag)]() {
         return "Router";
@@ -4471,6 +5209,7 @@ class Router {
     }
     _addPopStateEventListeners() {
         window.addEventListener("popstate", async () => {
+            if (!__classPrivateFieldGet(this, _Router_routerReady, "f")) return;
             if (!await this._checkNavigationGuard()) {
                 const previousPath = __classPrivateFieldGet(this, _Router_lastPath, "f") ?? "/";
                 const hashPath = `#/${previousPath === "/" ? "" : previousPath}`;
@@ -4480,12 +5219,14 @@ class Router {
             this._refreshCurrentPage();
         });
     }
-    _cleanup() {
-        $(__classPrivateFieldGet(this, _Router_containerSelector, "f"))?.find("*").addBack().off();
+    _cleanup(outgoing) {
+        if (outgoing?.isAlive) {
+            outgoing.remove();
+        }
         $(__classPrivateFieldGet(this, _Router_containerSelector, "f")).html(``);
+        Toast.dismissAll();
     }
     async _refreshCurrentPage() {
-        this._cleanup();
         const queryParams = _a$1.queryParams;
         const queryObject = Object.fromEntries(queryParams.entries());
         this._navigateTo(_a$1.location, {
@@ -4522,8 +5263,10 @@ class Router {
         }
     }
     _parseQueryParamsToString(obj = {}) {
+        const entries = Object.entries(obj);
+        if (entries.length === 0) return "";
         let queryString = "?";
-        for (const [key, value] of Object.entries(obj)) {
+        for (const [key, value] of entries) {
             queryString += `${key}=${value}&`;
         }
         return queryString;
@@ -4556,9 +5299,9 @@ class Router {
         const newRoute = await this._loadRoute(internalUrl);
         if (navId !== __classPrivateFieldGet(this, _Router_navigationId, "f")) return;
         const oldRoute = __classPrivateFieldGet(this, _Router_routesMap, "f").get(fromPath);
-        if (oldRoute?.isAlive) oldRoute.hide(0);
-        this._cleanup();
+        this._cleanup(oldRoute);
         this._applyRoute(newRoute);
+        _a$1.clearNavigationGuard();
         __classPrivateFieldSet(this, _Router_lastPath, internalUrl, "f");
         new NavigationEvent(internalUrl, fromPath, options?.query).dispatch();
     }
@@ -4567,25 +5310,45 @@ class Router {
             document.title = route.title;
             route.render();
         } catch (error) {
-            throw new SystemError(`RouteError`, `Error loading route on ${_a$1.location}. \n Error: ${error.message} `);
+            if (error instanceof SystemError) throw error;
+            console.error("[Router._applyRoute] route render failed", {
+                path: _a$1.location,
+                error: error
+            });
+            throw new SystemError(`RouteError`, `Error loading route on ${_a$1.location}.`, {
+                cause: error
+            });
         }
     }
     _popLevel(x = 1) {
         const path = _a$1.location.split("/");
         if (path.length <= 1) return this._navigateTo("/");
-        this._navigateTo(path.slice(0, path.length - x).join("/"));
+        const sliced = path.slice(0, path.length - x).join("/");
+        this._navigateTo(sliced || "/");
     }
     async _checkNavigationGuard() {
         if (!__classPrivateFieldGet(this, _Router_navigationGuard, "f")) return true;
+        if (__classPrivateFieldGet(this, _Router_guardInFlight, "f")) return false;
         const guardResult = __classPrivateFieldGet(this, _Router_navigationGuard, "f").call(this);
         if (guardResult === false) return false;
         if (typeof guardResult === "string") {
-            return this._showNavigationGuardDialog(guardResult);
+            __classPrivateFieldSet(this, _Router_guardInFlight, true, "f");
+            try {
+                return await this._showNavigationGuardDialog(guardResult);
+            } finally {
+                __classPrivateFieldSet(this, _Router_guardInFlight, false, "f");
+            }
         }
         return true;
     }
     _showNavigationGuardDialog(message) {
         return new Promise(resolve => {
+            let settled = false;
+            const settle = allow => {
+                if (settled) return;
+                settled = true;
+                resolve(allow);
+            };
             const dialog = new Dialog({
                 title: "Unsaved Changes",
                 variant: "warning",
@@ -4593,19 +5356,20 @@ class Router {
                 backdrop: true,
                 closeOnFocusLoss: false,
                 containerSelector: "body",
+                onCloseHandler: () => {
+                    settle(false);
+                    dialog.remove();
+                },
                 footer: new Container([ new Button("Stay", {
                     variant: "secondary",
                     onClickHandler: () => {
                         dialog.close();
-                        dialog.remove();
-                        resolve(false);
                     }
                 }), new Button("Leave", {
                     variant: "danger",
                     onClickHandler: () => {
+                        settle(true);
                         dialog.close();
-                        dialog.remove();
-                        resolve(true);
                     }
                 }) ])
             });
@@ -4664,7 +5428,7 @@ class LinkButton extends Button {
     }
     toString() {
         if (!this._isExternal) return super.toString();
-        return `<a href="${escapeAttr(this._path)}"\n\t\t\t\t\ttarget="${this._target}"\n\t\t\t\t\trel="noopener noreferrer"\n\t\t\t\t\ttitle="${escapeAttr(this.title)}"\n\t\t\t\t\tid="${this.id}"\n\t\t\t\t\tclass="${this.class} ${this.modifierClasses}"\n\t\t\t\t\t${this.isDisabled || this.isLoading ? 'aria-disabled="true" tabindex="-1"' : ""}\n\t\t\t\t/>`;
+        return `<a href="${escapeAttr(this._path)}"\n\t\t\t\t\ttarget="${this._target}"\n\t\t\t\t\trel="noopener noreferrer"\n\t\t\t\t\ttitle="${escapeAttr(this.title)}"\n\t\t\t\t\tid="${this.id}"\n\t\t\t\t\tclass="${this.class} ${this.modifierClasses}"\n\t\t\t\t\t${this.isDisabled || this.isLoading ? 'aria-disabled="true" tabindex="-1"' : ""}\n\t\t\t\t></a>`;
     }
     get isExternal() {
         return this._isExternal;
@@ -4680,32 +5444,50 @@ async function pageReset({clearConsole: clearConsole = true, removeStyles: remov
 }) {
     if (clearConsole) window.console.clear();
     const resetClass = `${LIB_PREFIX}-reset`;
+    let inheritedStyles = [];
     if (removeStyles) {
-        const inheritedStyles = [], s1 = $(`link[rel="stylesheet"]`), s2 = $(`style`);
+        const s1 = $(`link[rel="stylesheet"]`), s2 = $(`style`);
         inheritedStyles.push(...s1.toArray());
         inheritedStyles.push(...s2.toArray());
         s1.remove();
         s2.remove();
-        window.displaySharePointUI = () => {
-            forEach(inheritedStyles, tag => $("head").append(tag));
-            $("body").removeClass(resetClass);
-        };
     }
-    $("body").prepend("<div id='root'/>");
+    const existingRoot = document.getElementById("root");
+    const rootEl = existingRoot ?? document.createElement("div");
+    if (!existingRoot) {
+        rootEl.id = "root";
+        $("body").prepend(rootEl);
+    }
     $("body").addClass(resetClass);
-    const styleTag = `\n    <style>\n      .${resetClass}{\n        overflow:hidden;\n        padding:0;\n      }\n      .${resetClass}>*{\n        display: none;\n      }\n      #root{\n        display: block;\n        width: 100vw;\n        height: 100svh;\n        margin:0;\n        padding:0;\n        background-color:transparent;\n      }\n    </style>\n    `;
-    $("head").append(styleTag);
+    const styleEl = document.createElement("style");
+    styleEl.textContent = `\n      .${resetClass}{\n        overflow:hidden;\n        padding:0;\n      }\n      .${resetClass}>*{\n        display: none;\n      }\n      #root{\n        display: block;\n        width: 100vw;\n        height: 100svh;\n        margin:0;\n        padding:0;\n        background-color:transparent;\n      }\n    `;
+    document.head.appendChild(styleEl);
     const loadPromises = [];
+    let baseStyle = null;
     if (!__INTERNAL_DEBUG_OPTIONS?.stopAutoLoadBaseTheme) {
         const baseCssPath = resolvePath(`@/libs/${LIB_PREFIX}/${LIB_PREFIX}.base.css`);
-        const baseStyle = new StyleResource(baseCssPath);
+        baseStyle = new StyleResource(baseCssPath);
         loadPromises.push(baseStyle.ready);
     }
+    let appTheme = null;
     if (themePath) {
-        const appTheme = new StyleResource(themePath);
+        appTheme = new StyleResource(themePath);
         loadPromises.push(appTheme.ready);
     }
-    await Promise.allSettled(loadPromises);
+    const cssResults = await Promise.allSettled(loadPromises);
+    for (const result of cssResults) {
+        if (result.status === "rejected") {
+            console.error("[pageReset] a stylesheet failed to load", result.reason);
+        }
+    }
+    window.displaySharePointUI = () => {
+        if (rootEl.isConnected) rootEl.remove();
+        if (styleEl.isConnected) styleEl.remove();
+        baseStyle?.remove();
+        appTheme?.remove();
+        forEach(inheritedStyles, tag => $("head").append(tag));
+        $("body").removeClass(resetClass);
+    };
     if (typeof _spPageContextInfo !== "undefined" && !__INTERNAL_DEBUG_OPTIONS?.stopAutoRefreshDigest) {
         startDigestTimer();
     }
@@ -4735,63 +5517,226 @@ class SimpleElapsedTimeBenchmark {
 
 async function defineRoute(closureCallback) {
     const route = new Route;
+    const cleanups = [];
+    function runAndClearCleanups() {
+        const pending = cleanups.splice(0);
+        for (const fn of pending) {
+            try {
+                fn();
+            } catch (err) {
+                console.error("[defineRoute.onCleanup] cleanup threw", err);
+            }
+        }
+    }
     const config = {
         setRouteTitle: title => {
             route.title = title;
         },
+        onCleanup: fn => {
+            cleanups.push(fn);
+        },
         $DANGEROUS__route_backdoor: route
     };
     const refreshHandler = async () => {
+        runAndClearCleanups();
         route.children = await closureCallback(config);
     };
     route.onRefreshHandler = async () => await refreshHandler();
+    route.registerCleanupRunner(runAndClearCleanups);
     return route;
 }
 
-var _RoleManager_roles, _RoleManager_loaded;
+const MAX_RECIPIENTS_PER_CALL = 50;
 
-class RoleManager {
-    constructor() {
-        _RoleManager_roles.set(this, []);
-        _RoleManager_loaded.set(this, false);
-    }
-    async load(listName = "UserRoles") {
-        const email = (new CurrentUser).get("email");
-        const api = new ListApi(listName);
-        const [item] = await api.getItemByTitle(email);
-        __classPrivateFieldSet(this, _RoleManager_roles, Array.isArray(item?.Roles) ? item.Roles : [], "f");
-        __classPrivateFieldSet(this, _RoleManager_loaded, true, "f");
-    }
-    hasRole(role) {
-        return __classPrivateFieldGet(this, _RoleManager_roles, "f").includes(role);
-    }
-    hasAnyRole(requiredRoles) {
-        if (requiredRoles.includes("*")) return true;
-        return requiredRoles.some(r => __classPrivateFieldGet(this, _RoleManager_roles, "f").includes(r));
-    }
-    canAccess(key, permissionMap) {
-        const required = permissionMap[key];
-        if (!required) return false;
-        return this.hasAnyRole(required);
-    }
-    get roles() {
-        return [ ...__classPrivateFieldGet(this, _RoleManager_roles, "f") ];
-    }
-    get isLoaded() {
-        return __classPrivateFieldGet(this, _RoleManager_loaded, "f");
+const _webUrl = () => (_spPageContextInfo?.webAbsoluteUrl ?? location.origin).replace(/\/$/, "");
+
+function _rethrow(name, message, cause, details) {
+    console.error(`[email.api._rethrow] ${name}: ${message}`, {
+        cause: cause,
+        details: details
+    });
+    if (cause instanceof SystemError) throw cause;
+    const err = new SystemError(name, message, {
+        breaksFlow: false,
+        cause: cause
+    });
+    err.details = details ?? null;
+    throw err;
+}
+
+async function _ensureUserSafe(loginNameOrEmail) {
+    try {
+        const url = `${_webUrl()}/_api/web/ensureUser`;
+        const result = await spPOST(url, {
+            data: {
+                logonName: loginNameOrEmail
+            }
+        });
+        if (!result || typeof result !== "object") return null;
+        const obj = result;
+        const user = "d" in obj ? obj.d : obj;
+        return user ?? null;
+    } catch (err) {
+        console.warn("[email.api._ensureUserSafe] ensureUser failed, recipient will remain unresolved", {
+            login: loginNameOrEmail,
+            err: err
+        });
+        return null;
     }
 }
 
-_RoleManager_roles = new WeakMap, _RoleManager_loaded = new WeakMap;
+async function resolveEmailsToLogins(emails) {
+    const cleaned = [ ...new Set((emails ?? []).map(normalizeEmail).filter(Boolean)) ];
+    const valid = cleaned.filter(isValidEmail);
+    const invalid = cleaned.filter(e => !isValidEmail(e));
+    const resolved = new Map;
+    if (!valid.length) return {
+        resolved: resolved,
+        unresolved: [],
+        invalid: invalid
+    };
+    const filter = valid.map(e => `Email eq '${escapeODataStr(e)}'`).join(" or ");
+    const url = `${_webUrl()}/_api/web/siteUsers` + `?$filter=${encodeURIComponent(filter)}` + `&$select=Email,LoginName` + `&$top=${valid.length}`;
+    let data;
+    try {
+        data = await spGET(url);
+    } catch (cause) {
+        _rethrow("EmailResolutionFailed", `Failed to resolve ${valid.length} email(s) to login names via siteUsers query.`, cause, {
+            count: valid.length
+        });
+    }
+    const rows = unwrapCollection(data);
+    for (const r of rows) {
+        const e = normalizeEmail(r.Email);
+        if (e && r.LoginName) resolved.set(e, r.LoginName);
+    }
+    const unresolved = valid.filter(e => !resolved.has(e));
+    return {
+        resolved: resolved,
+        unresolved: unresolved,
+        invalid: invalid
+    };
+}
 
-var _a, _ContextStore_store, _ContextStore_tryDispose;
+async function sendEmail({to: to, cc: cc, bcc: bcc, subject: subject, body: body, from: from}) {
+    if (!subject || typeof subject !== "string") {
+        throw new SystemError("EmailValidation", "sendEmail: `subject` is required and must be a non-empty string.");
+    }
+    if (!body || typeof body !== "string") {
+        throw new SystemError("EmailValidation", "sendEmail: `body` is required and must be a non-empty string.");
+    }
+    const toList = [].concat(to ?? []).map(normalizeEmail).filter(Boolean);
+    const ccList = [].concat(cc ?? []).map(normalizeEmail).filter(Boolean);
+    const bccList = [].concat(bcc ?? []).map(normalizeEmail).filter(Boolean);
+    const allDedup = [ ...new Set([ ...toList, ...ccList, ...bccList ]) ];
+    if (!allDedup.length) {
+        throw new SystemError("EmailValidation", "sendEmail: at least one recipient is required.");
+    }
+    if (allDedup.length > MAX_RECIPIENTS_PER_CALL) {
+        const err = new SystemError("EmailTooManyRecipients", `sendEmail: recipient count ${allDedup.length} exceeds max ${MAX_RECIPIENTS_PER_CALL}. ` + `Split into batches of <= ${MAX_RECIPIENTS_PER_CALL} and call sendEmail once per batch.`, {
+            breaksFlow: false
+        });
+        err.details = {
+            count: allDedup.length,
+            max: MAX_RECIPIENTS_PER_CALL
+        };
+        throw err;
+    }
+    let resolution;
+    try {
+        resolution = await resolveEmailsToLogins(allDedup);
+    } catch (cause) {
+        _rethrow("EmailResolutionFailed", "sendEmail: unable to resolve recipient emails to claim logins.", cause, {
+            recipientCount: allDedup.length
+        });
+    }
+    if (resolution.invalid.length) {
+        const err = new SystemError("EmailInvalid", `sendEmail: malformed email address(es): ${resolution.invalid.join(", ")}`, {
+            breaksFlow: false
+        });
+        err.details = {
+            invalid: resolution.invalid
+        };
+        throw err;
+    }
+    if (resolution.unresolved.length) {
+        const stillMissing = [];
+        for (const email of resolution.unresolved) {
+            const user = await _ensureUserSafe(email);
+            if (user?.LoginName) {
+                resolution.resolved.set(email, user.LoginName);
+            } else {
+                stillMissing.push(email);
+            }
+        }
+        resolution.unresolved = stillMissing;
+    }
+    if (resolution.unresolved.length) {
+        const err = new SystemError("EmailUnresolved", `sendEmail: ${resolution.unresolved.length} recipient(s) could not be resolved ` + `even after ensureUser fallback: ${resolution.unresolved.join(", ")}. Each user must have visited or been granted ` + `access to this site collection before they can receive mail from it.`, {
+            breaksFlow: false
+        });
+        err.details = {
+            unresolved: resolution.unresolved
+        };
+        throw err;
+    }
+    const _mapToLogins = list => list.map(e => resolution.resolved.get(e)).filter(v => v !== undefined);
+    const properties = {
+        __metadata: {
+            type: "SP.Utilities.EmailProperties"
+        },
+        To: {
+            results: _mapToLogins(toList)
+        },
+        Subject: subject,
+        Body: body
+    };
+    if (ccList.length) properties.Cc = {
+        results: _mapToLogins(ccList)
+    };
+    if (bccList.length) properties.Bcc = {
+        results: _mapToLogins(bccList)
+    };
+    if (from) properties.From = from;
+    const toResults = properties.To.results;
+    if (!toResults.length) {
+        const fallback = _mapToLogins(bccList)[0] ?? _mapToLogins(ccList)[0] ?? from;
+        if (!fallback) {
+            throw new SystemError("EmailValidation", "sendEmail: no resolvable To recipient available.");
+        }
+        properties.To = {
+            results: [ fallback ]
+        };
+    }
+    const url = `${_webUrl()}/_api/SP.Utilities.Utility.SendEmail`;
+    try {
+        await spPOST(url, {
+            data: {
+                properties: properties
+            }
+        });
+    } catch (cause) {
+        _rethrow("EmailSendFailed", `sendEmail: SP.Utilities.Utility.SendEmail rejected the request -- ` + `${cause?.message ?? "(no message)"}`, cause, {
+            recipientCount: allDedup.length
+        });
+    }
+    return {
+        ok: true,
+        recipientCount: allDedup.length
+    };
+}
+
+var _a, _ContextStore_store, _ContextStore_isExpired, _ContextStore_tryDispose;
 
 class ContextStore {
     constructor() {}
-    static set(key, value) {
+    static set(key, value, ttlMs) {
+        const existing = __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).get(key);
+        if (existing !== undefined) __classPrivateFieldGet(_a, _a, "m", _ContextStore_tryDispose).call(_a, existing.value);
         __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).set(key, {
             value: value,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            expiresAt: ttlMs !== undefined ? Date.now() + ttlMs : undefined
         });
     }
     static get(key, fallback) {
@@ -4800,10 +5745,23 @@ class ContextStore {
             if (arguments.length >= 2) return fallback;
             throw new SystemError("ContextStore", `Key "${key}" not found in ContextStore`);
         }
+        if (__classPrivateFieldGet(_a, _a, "m", _ContextStore_isExpired).call(_a, entry)) {
+            __classPrivateFieldGet(_a, _a, "m", _ContextStore_tryDispose).call(_a, entry.value);
+            __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).delete(key);
+            if (arguments.length >= 2) return fallback;
+            throw new SystemError("ContextStore", `Key "${key}" not found in ContextStore`);
+        }
         return entry.value;
     }
     static has(key) {
-        return __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).has(key);
+        const entry = __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).get(key);
+        if (entry === undefined) return false;
+        if (__classPrivateFieldGet(_a, _a, "m", _ContextStore_isExpired).call(_a, entry)) {
+            __classPrivateFieldGet(_a, _a, "m", _ContextStore_tryDispose).call(_a, entry.value);
+            __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).delete(key);
+            return false;
+        }
+        return true;
     }
     static delete(key) {
         const entry = __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).get(key);
@@ -4816,6 +5774,17 @@ class ContextStore {
         }
         __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).clear();
     }
+    static clearScope(prefix) {
+        let count = 0;
+        for (const [key, entry] of __classPrivateFieldGet(_a, _a, "f", _ContextStore_store)) {
+            if (key.startsWith(prefix)) {
+                __classPrivateFieldGet(_a, _a, "m", _ContextStore_tryDispose).call(_a, entry.value);
+                __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).delete(key);
+                count++;
+            }
+        }
+        return count;
+    }
     static get size() {
         return __classPrivateFieldGet(_a, _a, "f", _ContextStore_store).size;
     }
@@ -4824,7 +5793,9 @@ class ContextStore {
     }
 }
 
-_a = ContextStore, _ContextStore_tryDispose = function _ContextStore_tryDispose(value) {
+_a = ContextStore, _ContextStore_isExpired = function _ContextStore_isExpired(entry) {
+    return entry.expiresAt !== undefined && Date.now() > entry.expiresAt;
+}, _ContextStore_tryDispose = function _ContextStore_tryDispose(value) {
     if (value && typeof value === "object" && "dispose" in value && typeof value.dispose === "function") {
         value.dispose();
     }
@@ -4867,6 +5838,7 @@ class FormSchema {
         return Object.values(this._fields).some(e => e.wasTouched);
     }
     focusOnFirstInvalid() {
+        this.validateAll();
         Object.values(this._fields).find(e => !e.isValid)?.focusOnInput();
     }
     get(key) {
@@ -4899,6 +5871,10 @@ function enforceStrictObject(obj) {
     });
 }
 
+function isCallable(arg) {
+    return typeof arg === "function" || arg !== null && typeof arg === "object" && "call" in arg;
+}
+
 class TabGroup extends Container {
     constructor(tabs, props = {}) {
         super([], props);
@@ -4907,12 +5883,15 @@ class TabGroup extends Container {
         const viewEntries = tabs.map(tab => [ tab.key, tab.view ]);
         this._viewSwitcher = new ViewSwitcher(viewEntries, {
             selectedViewName: props?.selectedTabKey,
-            onRefreshHandler: (key, index, view) => this._onTabChangeHandler({
-                view: view,
-                key: key,
-                label: tabs[index].label,
-                disabled: tabs[index].disabled
-            })
+            onRefreshHandler: (key, index, view) => {
+                this._updateActiveTab(key);
+                this._onTabChangeHandler({
+                    view: view,
+                    key: key,
+                    label: tabs[index].label,
+                    disabled: tabs[index].disabled
+                });
+            }
         });
         this.children = [ this._viewSwitcher ];
     }
@@ -4948,36 +5927,30 @@ class TabGroup extends Container {
         activeTab?.attr("aria-selected", "true");
         activeTab?.attr("tabindex", "0");
     }
-    _onTabClickListeners() {
-        this.instance?.find(`.${this.topClassBEM}__nav__tab-btn`).each((_, tab) => {
-            const tabKey = $(tab).attr("data-tab-key");
-            $(tab).on("click", () => {
-                if ($(tab).attr("disabled") !== undefined) return;
-                this.setTab(tabKey);
-            });
-        });
-    }
     _applyEventListeners() {
         super._applyEventListeners();
         this._onTabClickListeners();
     }
+    _onTabClickListeners() {
+        this._addManagedListener("click", e => {
+            const btn = $(e.currentTarget);
+            if (btn.attr("disabled") !== undefined) return;
+            const tabKey = btn.attr("data-tab-key");
+            if (tabKey) this.setTab(tabKey);
+        }, `.${this.topClassBEM}__nav__tab-btn`);
+    }
     setTab(tabKey) {
         this._viewSwitcher.setView(tabKey);
-        this._updateActiveTab(tabKey);
     }
     setTabByIndex(index) {
         if (index < 0 || index >= this._tabs.length) return;
         this.setTab(this._tabs[index].key);
     }
     nextTab() {
-        const currentIndex = this._viewSwitcher.currentViewIndex;
-        const newIndex = currentIndex + 1 === this._tabs.length ? 0 : currentIndex + 1;
-        this.setTab(this._tabs[newIndex].key);
+        this._viewSwitcher.next();
     }
     previousTab() {
-        const currentIndex = this._viewSwitcher.currentViewIndex;
-        const newIndex = currentIndex === 0 ? this._tabs.length - 1 : currentIndex - 1;
-        this.setTab(this._tabs[newIndex].key);
+        this._viewSwitcher.previous();
     }
     addTabs(...tabs) {
         this._tabs = [ ...this._tabs, ...tabs ];
@@ -4995,13 +5968,22 @@ class TabGroup extends Container {
     }
 }
 
+function isLabelTargetProvider(component) {
+    return component != null && typeof component.labelTarget === "string";
+}
+
 class FieldLabel extends HTMDElement {
     constructor(labelText, component, props) {
         super(component, props);
         this._labelText = labelText;
-        this._position = props?.position || (component instanceof CheckBox ? "left" : "top");
+        if (isLabelTargetProvider(component)) {
+            this._position = props?.position ?? (component.defaultLabelPosition ?? "top");
+            this._componentId = component.labelTarget;
+        } else {
+            this._position = props?.position ?? "top";
+            this._componentId = component.id;
+        }
         this._tooltip = props?.tooltip;
-        this._componentId = component instanceof CheckBox ? `${component.id}-input` : component.id;
     }
     get [Symbol.toStringTag]() {
         return "Field Label";
@@ -5028,15 +6010,11 @@ class FieldLabel extends HTMDElement {
     }
     set tooltip(tooltip) {
         this._tooltip = tooltip;
-        $(`.${this.topClassBEM}__label`).replaceWith(this._createLabel());
+        this.instance?.find(`.${this.topClassBEM}__label`).replaceWith(this._createLabel());
     }
     set position(position) {
         if (this._position === position) return;
         this._position = position;
-        if (this.isAlive) {
-            this.instance?.removeClass(`${this.topClassBEM}--left ${this.topClassBEM}--top ${this.topClassBEM}--right ${this.topClassBEM}--bottom`);
-            this.instance?.addClass(`${this.topClassBEM}--${position}`);
-        }
         this.render();
     }
     get label() {
@@ -5050,5 +6028,11 @@ class FieldLabel extends HTMDElement {
     }
 }
 
-export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, Modal, NavigationEvent, NumberInput, PeoplePicker, RoleManager, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, dayjs as __dayjs, Fuse as __fuse, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isComboBoxOption, listIcons, pageReset, refreshRequestDigest, registerIcons, resolvePath, sanitizeQuery, searchUsers, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
+function isHTMDNode(arg) {
+    if (!Array.isArray(arg)) {
+        return isHTMDComponent(arg) || typeof arg === "number" || typeof arg === "string" || typeof arg === `function` && isHTMDNode(arg());
+    } else return every(arg, isHTMDNode);
+}
+
+export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, dayjs as __dayjs, Fuse as __fuse, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
 //# sourceMappingURL=nofbiz.base.js.map

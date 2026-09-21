@@ -1,0 +1,319 @@
+/* ==========================================================================
+   Program detail — screen-specific overrides only.
+   Foundation tokens, buttons, record header, section cards, tables
+   are all consumed from app.css. This file only adds what is unique
+   to the program detail Overview layout.
+   ========================================================================== */
+
+/* ---------- Detail body grid (1fr 360px) ---------- */
+
+.app-prog-detail-body {
+	display: grid;
+	grid-template-columns: 1fr 360px;
+	gap: 24px;
+	padding: 24px 32px;
+	align-items: start;
+	background: var(--app-bg-page);
+	min-height: calc(100vh - 64px - 56px); /* viewport minus header and record header */
+	box-sizing: border-box;
+}
+
+.app-prog-detail-main {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.app-prog-detail-rail {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+/* ---------- Record header PROGRAM tag ---------- */
+
+.app-prog-type-tag {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-primary-active);
+	background: var(--app-wash);
+	padding: 3px 8px;
+	border-radius: 2px;
+	white-space: nowrap;
+}
+
+/* ---------- Program details card: meta row ---------- */
+
+.app-prog-meta-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+	gap: 16px;
+	padding-bottom: 12px;
+	margin-bottom: 12px;
+	border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.app-prog-meta-cell {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.app-prog-meta-cell__label {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-fg-muted);
+}
+
+.app-prog-meta-cell__value {
+	font-size: var(--font-size-300);
+	color: var(--app-fg);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.app-prog-meta-cell__value--none {
+	color: var(--app-fg-disabled);
+}
+
+/* ---------- Wash avatar (24px) ---------- */
+
+.app-prog-avatar {
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	background: var(--app-wash);
+	border: 1px solid var(--app-tint);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: var(--font-size-100);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-primary-active);
+	flex-shrink: 0;
+}
+
+/* ---------- Stakeholder wash tokens ---------- */
+
+.app-prog-stakeholder-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.app-prog-stakeholder-token {
+	font-size: var(--font-size-200);
+	line-height: var(--line-height-200);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-primary-active);
+	background: var(--app-wash);
+	border: 1px solid var(--app-tint);
+	border-radius: 10000px;
+	padding: 3px 10px;
+	white-space: nowrap;
+}
+
+/* ---------- Program details section: context text ---------- */
+
+.app-prog-context {
+	font-size: var(--font-size-400);
+	line-height: 24px;
+	color: var(--app-fg);
+	margin-bottom: 16px;
+}
+
+/* ---------- Direct children table ---------- */
+
+/* Column widths: 90px kind | 1fr name | 120px status | 100px date */
+.app-children-table {
+	display: flex;
+	flex-direction: column;
+}
+
+.app-children-table .app-table-header,
+.app-children-table .app-table-row {
+	display: grid;
+	grid-template-columns: 90px 1fr 120px 100px;
+	align-items: center;
+}
+
+.app-children-table .app-table-col-header:last-child,
+.app-children-table .app-table-cell:last-child {
+	text-align: right;
+}
+
+/* Kind tag inside child rows */
+.app-kind-tag {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	padding: 2px 7px;
+	border-radius: 4px;
+	white-space: nowrap;
+	display: inline-block;
+}
+
+.app-kind-tag--program {
+	background: var(--app-wash);
+	color: var(--app-primary-active);
+}
+
+.app-kind-tag--project {
+	background: #f5f5f5;
+	color: var(--app-fg-muted);
+}
+
+/* Date cell: right-aligned monospace */
+.app-children-date {
+	font-family: var(--font-family-monospace);
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+	text-align: right;
+}
+
+/* Heading row: section card heading carrying umbrella link */
+.app-section-card__heading-link {
+	font-size: var(--font-size-200);
+	color: var(--app-primary);
+	font-weight: var(--font-weight-semibold);
+	text-decoration: none;
+	cursor: pointer;
+	transition: color var(--app-transition-fast);
+}
+
+.app-section-card__heading-link:hover {
+	color: var(--app-primary-active);
+	text-decoration: underline;
+}
+
+/* ---------- Right rail widgets ---------- */
+
+/* Portfolio mix bar */
+.app-mix-bar {
+	display: flex;
+	height: 10px;
+	border-radius: 5px;
+	overflow: hidden;
+	margin: 12px 0 10px;
+}
+
+.app-mix-bar__seg {
+	height: 100%;
+	min-width: 4px;
+	transition: width var(--app-transition-normal);
+}
+
+.app-mix-legend {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px 16px;
+}
+
+.app-mix-legend-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+}
+
+.app-mix-legend-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+/* Totals card: 3 KPI values separated by 1px rules */
+.app-prog-totals {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+}
+
+.app-prog-total-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	padding: 12px 0;
+	border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.app-prog-total-row:last-child {
+	border-bottom: none;
+}
+
+.app-prog-total-label {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+}
+
+.app-prog-total-value {
+	font-size: var(--font-size-700);
+	line-height: var(--line-height-700);
+	font-weight: var(--font-weight-semibold);
+	font-family: var(--font-family-monospace);
+	letter-spacing: -0.02em;
+	color: var(--app-fg);
+}
+
+.app-prog-total-value--fte {
+	color: var(--app-primary-active);
+}
+
+/* Flat wash panel (dates info) */
+.app-prog-dates-panel {
+	background: var(--app-wash);
+	border-radius: 8px;
+	padding: 12px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.app-prog-dates-panel__label {
+	font-size: var(--font-size-100);
+	line-height: var(--line-height-100);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--app-primary-active);
+}
+
+.app-prog-dates-panel__range {
+	font-size: var(--font-size-300);
+	font-family: var(--font-family-monospace);
+	color: var(--app-fg);
+}
+
+.app-prog-dates-panel__note {
+	font-size: var(--font-size-200);
+	color: var(--app-fg-muted);
+}
+
+/* ---------- Umbrella/Edit tabs: full-width content ---------- */
+
+/* The overview tab hosts the 1fr/360px grid.
+   Umbrella and Edit tabs inherit app-form-section but need to reset the
+   centred detail route styling. */
+.app-record-header ~ .nofbiz__tabgroup > .nofbiz__tabgroup__content {
+	background: var(--app-bg-page);
+}
+
+/* Empty children state */
+.app-children-empty {
+	padding: 24px 0;
+	text-align: center;
+	color: var(--app-fg-muted);
+	font-size: var(--font-size-300);
+}
