@@ -20,6 +20,7 @@ import {
 	APP_NAME,
 } from "../utils/constants.js";
 import { loadScopes, getScopeOptions } from "../utils/scopes.js";
+import { loadDefinitions } from "../utils/definitions.js";
 import {
 	createProjectCard,
 	createProgramCard,
@@ -43,14 +44,27 @@ export default defineRoute(async (config) => {
 	const siteApi = getAppSiteApi();
 	const canAccessAdmin = user.accessLevel === 'ADMIN';
 
-	// Fetch scope options for the PM scope filter
-	let pmScopeOptions = [];
-	try {
-		const scopeItems = await loadScopes(siteApi);
-		pmScopeOptions = getScopeOptions(scopeItems);
-	} catch (err) {
-		console.error("[Home] Failed to load scopes:", err);
-	}
+	// Fetch scope options (PM scope filter) and definition options (Status,
+	// ProjectType filters) in parallel. Each load handles its own error so a
+	// failure in one never blanks the other or leaves a ComboBox with undefined.
+	const [pmScopeOptions, projectTypeOptions, projectStatusOptions] =
+		await Promise.all([
+			loadScopes(siteApi)
+				.then(getScopeOptions)
+				.catch((err) => {
+					console.error("[Home] Failed to load scopes:", err);
+					return [];
+				}),
+			loadDefinitions(siteApi)
+				.then((defs) => ({
+					types: defs.get("ProjectTypes"),
+					statuses: defs.get("ProjectStatuses"),
+				}))
+				.catch((err) => {
+					console.error("[Home] Failed to load definitions:", err);
+					return { types: PROJECT_TYPES, statuses: PROJECT_STATUSES };
+				}),
+		]).then(([scopes, defs]) => [scopes, defs.types, defs.statuses]);
 
 	// ------------------------------------------------------------------
 	// State
@@ -354,12 +368,12 @@ export default defineRoute(async (config) => {
 		placeholder: "Type",
 	});
 
-	const statusCombo = new ComboBox(statusFilter, PROJECT_STATUSES, {
+	const statusCombo = new ComboBox(statusFilter, projectStatusOptions, {
 		allowFiltering: false,
 		placeholder: "Status",
 	});
 
-	const projTypeCombo = new ComboBox(typeFilter, PROJECT_TYPES, {
+	const projTypeCombo = new ComboBox(typeFilter, projectTypeOptions, {
 		allowFiltering: false,
 		placeholder: "Project type",
 	});

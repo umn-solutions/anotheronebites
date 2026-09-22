@@ -2621,38 +2621,8 @@ _CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _C
         const siteApi = new SiteApi;
         const loginName = options?.targetUser ?? _spPageContextInfo.userLoginName;
         const data = await getFullUserDetails(loginName, siteApi);
-        const isCurrentUser = !options?.targetUser;
-        const seenEmails = new Set;
-        const seenLogins = new Set;
-        const identityEmails = [];
-        const identityLogins = [];
-        const _addEmail = v => {
-            const s = v?.trim();
-            if (!s) return;
-            const k = s.toLowerCase();
-            if (!seenEmails.has(k)) {
-                seenEmails.add(k);
-                identityEmails.push(s);
-            }
-        };
-        const _addLogin = v => {
-            const s = v?.trim();
-            if (!s) return;
-            const k = s.toLowerCase();
-            if (!seenLogins.has(k)) {
-                seenLogins.add(k);
-                identityLogins.push(s);
-            }
-        };
-        if (isCurrentUser) _addEmail(_spPageContextInfo.userEmail);
-        for (const e of data.accountEmails) _addEmail(e);
-        _addLogin(data.loginName);
-        for (const l of data.accountLogins) _addLogin(l);
         __classPrivateFieldSet(this, _CurrentUser_data, data, "f");
-        __classPrivateFieldSet(this, _CurrentUser_group, groupHierarchy.length ? await __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_resolveGroup).call(this, groupHierarchy, {
-            emails: identityEmails,
-            logins: identityLogins
-        }, siteApi) : null, "f");
+        __classPrivateFieldSet(this, _CurrentUser_group, groupHierarchy.length ? await __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_resolveGroup).call(this, groupHierarchy, data, siteApi) : null, "f");
         __classPrivateFieldSet(this, _CurrentUser_initialized, true, "f");
         __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_initPromise);
         return this;
@@ -2666,54 +2636,31 @@ _CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _C
             cause: error
         });
     }
-}, _CurrentUser_resolveGroup = async function _CurrentUser_resolveGroup(hierarchy, identities, siteApi) {
-    if (identities.emails.length === 0 && identities.logins.length === 0) {
-        const ctxEmail = _spPageContextInfo.userEmail?.trim();
-        if (!ctxEmail) {
-            console.warn("[CurrentUser] no identifiers available for group resolution -- group hierarchy will not be applied");
-            return null;
-        }
-        console.warn("[CurrentUser] identity set was empty; falling back to session email for group resolution", {
-            ctxEmail: ctxEmail
-        });
-        identities = {
-            emails: [ ctxEmail ],
-            logins: []
-        };
-    }
-    const results = await Promise.all(hierarchy.map(entry => siteApi.isUserInGroupByIdentities(entry.groupTitle, identities)));
-    let matchedEntry = null;
-    for (let i = hierarchy.length - 1; i >= 0; i--) {
-        if (results[i]) {
-            matchedEntry = hierarchy[i];
-            break;
-        }
-    }
-    if (!matchedEntry) return null;
-    let spGroup = null;
-    try {
-        const allGroups = await siteApi.getSiteGroups();
-        spGroup = allGroups.find(g => g.Title.toLowerCase() === matchedEntry.groupTitle.toLowerCase()) ?? null;
-    } catch (err) {
-        console.warn("[CurrentUser] getSiteGroups failed; group getter will hold a minimal stub", {
-            err: err
-        });
-    }
-    if (!spGroup) {
-        console.warn("[CurrentUser] matched hierarchy entry but SPGroup not found in getSiteGroups -- using stub", {
-            groupTitle: matchedEntry.groupTitle
-        });
-        spGroup = {
-            Id: 0,
-            Title: matchedEntry.groupTitle,
-            Description: "",
-            OwnerTitle: ""
-        };
-    }
-    return {
-        entry: matchedEntry,
-        spGroup: spGroup
+}, _CurrentUser_resolveGroup = async function _CurrentUser_resolveGroup(hierarchy, data, siteApi) {
+    const groupUnion = new Map;
+    const _addGroup = g => {
+        const key = g.Id ? String(g.Id) : `t:${g.Title.toLowerCase()}`;
+        if (!groupUnion.has(key)) groupUnion.set(key, g);
     };
+    for (const g of data.groups) _addGroup(g);
+    const primaryLogin = data.loginName?.trim().toLowerCase();
+    const ghostLogins = data.accountLogins.filter(login => login.trim().toLowerCase() !== primaryLogin);
+    const ghostResults = await Promise.all(ghostLogins.map(login => siteApi.getUserGroupsByLogin(login)));
+    for (const ghostGroups of ghostResults) {
+        for (const g of ghostGroups) _addGroup(g);
+    }
+    for (let i = hierarchy.length - 1; i >= 0; i--) {
+        const entry = hierarchy[i];
+        const title = entry.groupTitle.toLowerCase();
+        const matched = [ ...groupUnion.values() ].find(g => g.Title.toLowerCase() === title);
+        if (matched) {
+            return {
+                entry: entry,
+                spGroup: matched
+            };
+        }
+    }
+    return null;
 }, _CurrentUser_assertInitialized = function _CurrentUser_assertInitialized() {
     if (!__classPrivateFieldGet(this, _CurrentUser_initialized, "f")) {
         throw new SystemError("CurrentUserNotInitialized", "CurrentUser.initialize() must be awaited before accessing user data.");
@@ -3355,34 +3302,34 @@ class SiteApi {
     async isUserInGroup(group, email) {
         return (await this.getGroupUsersByEmail(group, email)).length > 0;
     }
-    async getGroupMembersByIdentities(group, identities) {
-        const clauses = [];
-        for (const raw of identities.emails ?? []) {
-            const normalized = normalizeEmail(raw);
-            if (isValidEmail(normalized)) {
-                clauses.push(`Email eq '${escapeODataStr(normalized)}'`);
-            }
+    async getUserGroupsByLogin(login) {
+        const trimmed = login?.trim();
+        if (!trimmed) {
+            console.warn("[SiteApi.getUserGroupsByLogin] empty login -- skipping request");
+            return [];
         }
-        for (const raw of identities.logins ?? []) {
-            const login = raw?.trim();
-            if (login) {
-                clauses.push(`LoginName eq '${escapeODataStr(login)}'`);
+        try {
+            const filter = `LoginName eq '${escapeODataStr(trimmed)}'`;
+            const lookupUrl = `${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/siteusers` + `?$filter=${encodeURIComponent(filter)}` + `&$select=Id`;
+            const lookupResponse = await spGET(lookupUrl);
+            const users = lookupResponse.value ?? [];
+            if (users.length === 0) {
+                console.warn("[SiteApi.getUserGroupsByLogin] login not found in UIL -- no groups resolved", {
+                    login: trimmed
+                });
+                return [];
             }
-        }
-        if (clauses.length === 0) {
-            console.warn("[SiteApi.getGroupMembersByIdentities] no valid identifiers in identity set -- skipping request", {
-                identities: identities
+            const userId = users[0].Id;
+            const groupsUrl = `${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/getuserbyid(${userId})/groups`;
+            const groupsResponse = await spGET(groupsUrl);
+            return groupsResponse.value ?? [];
+        } catch (err) {
+            console.warn("[SiteApi.getUserGroupsByLogin] failed to resolve groups for login", {
+                login: trimmed,
+                err: err
             });
             return [];
         }
-        const selector = __classPrivateFieldGet(this, _SiteApi_instances, "m", _SiteApi_groupSelector).call(this, group);
-        const filter = clauses.join(" or ");
-        const url = `${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web/sitegroups/${selector}/users` + `?$filter=${encodeURIComponent(filter)}` + `&$select=Id,LoginName,Title,Email`;
-        const response = await spGET(url);
-        return response.value ?? [];
-    }
-    async isUserInGroupByIdentities(group, identities) {
-        return (await this.getGroupMembersByIdentities(group, identities)).length > 0;
     }
     getWebInfo() {
         return spGET(`${__classPrivateFieldGet(this, _SiteApi_url, "f")}/_api/web`);
@@ -5977,7 +5924,7 @@ class FieldLabel extends HTMDElement {
         super(component, props);
         this._labelText = labelText;
         if (isLabelTargetProvider(component)) {
-            this._position = props?.position ?? (component.defaultLabelPosition ?? "top");
+            this._position = props?.position ?? component.defaultLabelPosition ?? "top";
             this._componentId = component.labelTarget;
         } else {
             this._position = props?.position ?? "top";

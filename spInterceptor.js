@@ -373,36 +373,23 @@ var SPInterceptor = (function ($) {
     return val || null;
   }
 
-  function _matchODataCondition(item, cond) {
-    var parts = cond.trim().match(/^(\w+)\s+eq\s+(.+)$/i);
-    if (!parts) return true; // unparseable clause -> ignore (permissive)
-    var prop = parts[1];
-    var raw = parts[2].trim();
-    var expected;
-    if (raw === 'true') expected = true;
-    else if (raw === 'false') expected = false;
-    else if (raw.charAt(0) === "'") expected = raw.slice(1, -1);
-    else expected = raw;
-    return item[prop] === expected;
-  }
-
   function _applyODataFilter(items, filterString) {
     if (!filterString) return items;
-    // OData precedence: `and` binds tighter than `or`. Callers here never use
-    // parentheses, so split OR-groups first, then AND-conditions within each.
-    // An item passes if ANY or-group is satisfied (all its and-conditions true).
-    // Required for identity resolution, which sends `Email eq '...' or LoginName eq '...'`.
-    var orGroups = filterString.split(/\s+or\s+/i);
+    var conditions = filterString.split(/\s+and\s+/i);
     return items.filter(function (item) {
-      for (var g = 0; g < orGroups.length; g++) {
-        var conditions = orGroups[g].split(/\s+and\s+/i);
-        var allMatch = true;
-        for (var i = 0; i < conditions.length; i++) {
-          if (!_matchODataCondition(item, conditions[i])) { allMatch = false; break; }
-        }
-        if (allMatch) return true;
+      for (var i = 0; i < conditions.length; i++) {
+        var parts = conditions[i].trim().match(/^(\w+)\s+eq\s+(.+)$/i);
+        if (!parts) continue;
+        var prop = parts[1];
+        var raw = parts[2].trim();
+        var expected;
+        if (raw === 'true') expected = true;
+        else if (raw === 'false') expected = false;
+        else if (raw.charAt(0) === "'") expected = raw.slice(1, -1);
+        else expected = raw;
+        if (item[prop] !== expected) return false;
       }
-      return false;
+      return true;
     });
   }
 

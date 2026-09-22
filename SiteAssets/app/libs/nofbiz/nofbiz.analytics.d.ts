@@ -37,7 +37,7 @@ declare class CirclePackingChart {
     /**
      * Generate default hierarchical dummy data
      */
-    private getDefaultData;
+    private _getDefaultData;
     /**
      * Render the circle packing chart
      */
@@ -105,12 +105,12 @@ declare class RadarChart {
     private _strokeWidth;
     private _svg;
     private _resizeObserver;
-    private readonly colors;
+    private readonly _colors;
     constructor(container: HTMLElement | string, options?: RadarChartOptions);
     /**
      * Generate default dummy data
      */
-    private getDefaultData;
+    private _getDefaultData;
     /**
      * Render the radar chart
      */
@@ -118,7 +118,7 @@ declare class RadarChart {
     /**
      * Wrap text into multiple lines
      */
-    private wrap;
+    private _wrap;
     /**
      * Set new data and re-render
      */

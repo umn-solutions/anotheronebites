@@ -1168,17 +1168,26 @@ interface FullUserDetails extends UserProfile {
  * Provides the {@link CurrentUser} async singleton for accessing the
  * authenticated user's profile, group memberships, and resolved access level.
  *
- * Access-level resolution uses a MULTI-IDENTIFIER OR-filter
- * ({@link SiteApi.isUserInGroupByIdentities}) rather than a single email.
+ * Access-level resolution uses a REVERSE-DIRECTION / OWN-GROUP-UNION approach
+ * rather than reading the roster of admin/privileged groups. Reading another
+ * group's roster is gated by SharePoint's per-group "Who can view the membership
+ * of the group" setting, and a normal user resolving their tier must read the
+ * ADMIN group's roster -- which they are forbidden from doing. This causes an
+ * HTTP 401 that fires at the network layer (before any try/catch can intercept it)
+ * and triggers the native SSO credential modal in the browser.
+ *
+ * Instead, group membership is resolved by collecting the groups that the USER's
+ * own principals belong to ("list the groups MY identities are in") and matching
+ * that union locally against the configured hierarchy. Reading a user's own group
+ * list via `getuserbyid/groups` is not gated by any group's roster setting.
+ *
  * On-premises SharePoint can create multiple User Information List entries for
  * the same AD person -- a "real" entry with full data and a "ghost" entry keyed
  * on the employeeId with a different LoginName and often an empty Email column.
- * Group membership may be recorded under either entry. A single-email check
- * silently misses the cases where the stored row uses the ghost login or the
- * People Picker email does not match the UIL Email column. OR-filtering by the
- * full identity set (all known logins + all known emails) from
- * {@link FullUserDetails.accountLogins} and {@link FullUserDetails.accountEmails}
- * covers both accounts in one server-side request per group, at no extra cost.
+ * Group membership may be recorded under either entry. The group union is built
+ * across ALL of the user's known principals (primary + ghost logins from
+ * {@link FullUserDetails.accountLogins}) so that membership under any entry is
+ * captured, regardless of which UIL row was used when the person was added.
  *
  * @see {@link GroupHierarchyEntry} for configuring group-based access levels.
  * @see `src/base/sharepoint/api/people.api.ts` for the underlying API calls.
@@ -1265,34 +1274,37 @@ declare class CurrentUser {
      * `initialize()` is already in flight, all concurrent callers await the
      * same promise rather than issuing duplicate fetches.
      *
-     * **Group resolution -- multi-identifier OR-filter:**
-     * Access-level resolution uses {@link SiteApi.isUserInGroupByIdentities} with
-     * the user's FULL identity set (all known emails + logins) rather than a
-     * single email. This is necessary on on-premises SharePoint farms where a
-     * single AD person can have multiple User Information List entries:
+     * **Group resolution -- own-group-union (reverse direction):**
+     * Access-level resolution collects the groups that the user's own principals
+     * belong to and matches them locally against the hierarchy, rather than
+     * reading the roster of each group in the hierarchy. Reading a group's roster
+     * is gated by SharePoint's per-group "Who can view the membership" setting;
+     * a normal user resolving their tier must read the ADMIN group's roster, which
+     * they are forbidden from -- triggering a browser-level SSO credential modal
+     * that no try/catch can suppress.
      *
-     * - A "real" entry with full data (correct email, display name, login)
-     * - A "ghost" entry keyed on employeeId with a different LoginName and often
-     *   an empty Email column
+     * The group union is built across all of the user's known principals:
+     * - Primary: `data.groups` (already fetched by {@link getFullUserDetails} via
+     *   `getuserbyid(siteUserId)/groups` -- zero extra calls for the main account).
+     * - Ghost logins: for each login in `data.accountLogins` that resolves to a
+     *   DIFFERENT site-user-id than the primary, the groups for that principal are
+     *   fetched via {@link SiteApi.getUserGroupsByLogin} and merged into the union.
+     *   This covers on-premises farms where a person has a "ghost" UIL entry with a
+     *   different LoginName (keyed on employeeId) and group membership may be stored
+     *   under that entry. Each ghost lookup is fault-tolerant (warns + continues).
      *
-     * Group membership can be recorded under either entry. A single-email check
-     * fails whenever the stored row uses the ghost login or when the People Picker
-     * email (picker-canonical) differs from the UIL Email column value.
-     *
-     * The identity set is built as follows:
-     * - `emails`: for the authenticated user, `_spPageContextInfo.userEmail` is
-     *   prepended first (session email, immune to ghost UIL entries), then all
-     *   emails from `data.accountEmails`. For a target user, only `accountEmails`.
-     * - `logins`: `data.loginName` (from `ensureUser`) plus `data.accountLogins`
-     *   (from all picker variants). Deduped, empties dropped.
+     * The union is deduplicated by group `Id` (falling back to `Title` when `Id` is
+     * absent or zero). The final match is done locally by walking the hierarchy from
+     * last index (highest privilege) to first; the first case-insensitive
+     * `groupTitle` match against the union wins.
      *
      * The `email` and `displayName` stored in `#data` (accessible via `get('email')`
      * and `get('displayName')`) are the picker-canonical values returned by
      * {@link getFullUserDetails} and are not altered here.
      *
      * @param groupHierarchy - Optional ordered list of groups from lowest to
-     *   highest privilege. The array is walked from last index to first; the
-     *   highest-priority match wins (parallel membership checks per entry).
+     *   highest privilege. The array is walked from last index to first;
+     *   the highest-priority match against the own-group union wins.
      * @param options - Optional settings. Use `options.targetUser` to load a
      *   different user's profile (debug/testing).
      * @returns A Promise resolving with the initialized `CurrentUser` instance.
@@ -3251,49 +3263,28 @@ declare class SiteApi {
      */
     isUserInGroup(group: number | string, email: string): Promise<boolean>;
     /**
-     * Returns the subset of a group's members that match ANY of the given emails
-     * or login names, via a single server-side OData `$filter` OR-expression.
+     * Retrieves the SharePoint groups that the given login name belongs to,
+     * resolved via the User Information List rather than `ensureUser`.
      *
-     * This method exists to handle on-premises SharePoint farms where the same AD
-     * person can have multiple User Information List entries (one real, one "ghost")
-     * with different `LoginName` values and sometimes an empty `Email` column.
-     * A single-email check misses membership when the stored group member row uses
-     * a different login or email than the one resolved from the People Picker.
-     * OR-filtering by the full identity set avoids that blind spot.
+     * Uses `/_api/web/siteusers?$filter=LoginName eq '<login>'` to look up the
+     * site user ID without requiring manage-web permission (only Browse User
+     * Information is needed -- the same permission relied on by `searchUsers`).
+     * Then fetches that principal's groups via `/_api/web/getuserbyid(<id>)/groups`.
      *
-     * Identifiers are normalized and validated before inclusion:
-     * - Emails: trimmed, lowercased, validated by {@link isValidEmail}.
-     * - Logins: trimmed (kept as-is for case-sensitive OData matching).
-     * - Empty, null, or invalid identifiers are silently dropped.
+     * This is the permission-safe approach for resolving a ghost account's group
+     * memberships on on-premises SharePoint. The site user lookup is gated by
+     * Browse User Information, which any authenticated user has, and reading
+     * one's own group list via `getuserbyid` is not restricted by any group's
+     * "Who can view the membership" setting.
      *
-     * If no valid identifiers remain after filtering, the method logs a warning
-     * and returns an empty array without making a network request.
+     * Returns `[]` and logs a warning if the login is not found in the UIL or if
+     * any request fails -- callers should treat an empty result as "no extra groups
+     * resolved" rather than an error.
      *
-     * @param group - Numeric group ID or group name string.
-     * @param identities - Object with optional `emails` and/or `logins` arrays.
-     * @returns An array of {@link SPUser} rows that matched (empty = not a member).
+     * @param login - The claims-encoded login name (e.g. `"i:0#.w|DOMAIN\\user"`).
+     * @returns The groups that principal belongs to, or `[]` on failure.
      */
-    getGroupMembersByIdentities(group: number | string, identities: {
-        emails?: string[];
-        logins?: string[];
-    }): Promise<SPUser[]>;
-    /**
-     * Returns `true` when the user represented by the given identity set is a
-     * member of the group, using a single server-side OR-filter across all
-     * provided emails and login names.
-     *
-     * Prefer this over {@link isUserInGroup} in contexts where the person may
-     * have duplicate or ghost UIL entries with different login names or an empty
-     * email column (common on on-premises SharePoint).
-     *
-     * @param group - Numeric group ID or group name string.
-     * @param identities - Object with optional `emails` and/or `logins` arrays.
-     * @returns `true` if any identity matched a group member row.
-     */
-    isUserInGroupByIdentities(group: number | string, identities: {
-        emails?: string[];
-        logins?: string[];
-    }): Promise<boolean>;
+    getUserGroupsByLogin(login: string): Promise<SPGroup[]>;
     /**
      * Retrieves the web properties for this site.
      *
