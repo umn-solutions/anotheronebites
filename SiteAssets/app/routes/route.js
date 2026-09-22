@@ -81,6 +81,8 @@ export default defineRoute(async (config) => {
 
 	// Backing data (set after each server search)
 	let currentResults = [];
+	let hasSearched = false;
+	let searchToken = 0; // guards against stale in-flight responses overwriting newer ones
 
 	// ------------------------------------------------------------------
 	// Lodash debounce for the server fetch (300ms). The FormField itself is
@@ -126,11 +128,13 @@ export default defineRoute(async (config) => {
 
 	function updateResultCount(filtered) {
 		const q = queryField.value;
+		const n = filtered.length;
 		if (q.trim().length > 0) {
-			const n = filtered.length;
 			resultCountText.children = [
 				`${n} ${n === 1 ? "result" : "results"} for "${q}"`,
 			];
+		} else if (hasSearched) {
+			resultCountText.children = [`${n} ${n === 1 ? "result" : "results"}`];
 		} else {
 			resultCountText.children = [""];
 		}
@@ -162,8 +166,8 @@ export default defineRoute(async (config) => {
 			pmScope: comboValue(pmScopeFilter.value),
 		});
 
-		const isEmpty =
-			queryField.value.trim().length > 0 && filtered.length === 0;
+		const showingResults = queryField.value.trim().length > 0 || hasSearched;
+		const isEmpty = showingResults && filtered.length === 0;
 
 		if (resultsGridContainer?.isAlive) {
 			resultsGridContainer.children = isEmpty ? [] : buildCards(filtered);
@@ -185,9 +189,10 @@ export default defineRoute(async (config) => {
 	// ------------------------------------------------------------------
 
 	async function performSearch(text) {
-		if (!text.trim()) return;
+		const myToken = ++searchToken;
+		const isShowAll = !text.trim();
 
-		const loading = Toast.loading("Searching...");
+		const loading = Toast.loading(isShowAll ? "Loading…" : "Searching…");
 		try {
 			const [projects, programs, proposals, delegations, userScopes] =
 				await Promise.all([
@@ -203,6 +208,11 @@ export default defineRoute(async (config) => {
 					fetchAllDelegations(siteApi),
 					fetchUserScopes(siteApi, user.get("email")),
 				]);
+
+			if (myToken !== searchToken) {
+				loading.dismiss();
+				return;
+			}
 
 			const userEmail = user.get("email");
 			const accessLevel = user.accessLevel;
@@ -237,7 +247,7 @@ export default defineRoute(async (config) => {
 			renderResults();
 		} catch (err) {
 			console.error("[Home] Search failed:", err);
-			loading.error("Search failed. Please try again.");
+			loading.error(isShowAll ? "Failed to load. Please try again." : "Search failed. Please try again.");
 			currentResults = [];
 			renderResults();
 		}
@@ -261,16 +271,27 @@ export default defineRoute(async (config) => {
 
 	queryField.subscribe((text) => {
 		const active = text.trim().length > 0;
-		setActiveState(active);
 
-		if (!active) {
-			currentResults = [];
-			renderResults();
-			debouncedSearch.cancel();
+		if (active) {
+			hasSearched = true;
+			setActiveState(true);
+			debouncedSearch(text);
 			return;
 		}
 
-		debouncedSearch(text);
+		// Empty box.
+		debouncedSearch.cancel();
+
+		if (hasSearched) {
+			// User cleared a search — show the full portfolio.
+			setActiveState(true);
+			performSearch("");
+		} else {
+			// Cold load: keep the idle hero.
+			setActiveState(false);
+			currentResults = [];
+			renderResults();
+		}
 	});
 
 	// ------------------------------------------------------------------
