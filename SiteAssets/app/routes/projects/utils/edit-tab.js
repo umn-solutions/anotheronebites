@@ -1,7 +1,8 @@
 import {
-  View, Container, Text, TextInput, TextArea, DateInput, ComboBox, PeoplePicker, FormField, Button, Toast
+  View, Container, Text, TextInput, DateInput, ComboBox, PeoplePicker, FormField, Button, Toast
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS } from '../../../utils/constants.js'
+import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS, LIST_PROJECTS, SCOPE_OPTIONS } from '../../../utils/constants.js'
+import { canPerformAction } from '../../../utils/access-control.js'
 import {
   createLabeledField, createFormSection, createFormRow,
   createMultiPersonPicker, createGroupMemberPicker, createMultiTargetValuePicker,
@@ -9,6 +10,8 @@ import {
 } from '../../../utils/form-helpers.js'
 
 export function createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null }) {
+
+  const canEdit = canPerformAction(effectiveRole, 'edit')
 
   // -------------------------------------------------------------------
   // Charter fields
@@ -72,7 +75,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     ]),
     createLabeledField('Context', new TextInput(contextField)),
     createLabeledField('Objectives', new TextInput(objectivesField)),
-    createLabeledField('Scope / Out of Scope', new TextArea(scopeField, { placeholder: 'Describe what is in scope and out of scope' })),
+    createLabeledField('Scope', new ComboBox(scopeField, SCOPE_OPTIONS, { allowFiltering: false, placeholder: 'Select...' })),
     createFormRow([
       createLabeledField('Project Type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
       createLabeledField('GDPR Classification', new ComboBox(gdprField, GDPR_CLASSIFICATIONS, { allowFiltering: false }))
@@ -190,7 +193,10 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     )
     if (!record) return Promise.resolve()
     return siteApi.list(LIST_ALLOCATIONS).deleteItem(record.Id, record['odata.etag'])
-      .catch(() => Toast.warning('Could not remove allocation for ' + email))
+      .catch((err) => {
+        console.warn('[EditTab] deleteAllocationByEmail failed', { email, err })
+        Toast.warning('Could not remove allocation for ' + email)
+      })
   }
 
   // -------------------------------------------------------------------
@@ -198,6 +204,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   // -------------------------------------------------------------------
 
   async function saveCharter() {
+    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return }
     const umbrellaLabel = umbrellaField.value?.label || ''
     const data = {
       Title: projectNameField.value,
@@ -207,7 +214,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       Objectives: objectivesField.value,
       ProjectType: comboValue(projectTypeField.value),
       GDPRClassification: comboValue(gdprField.value),
-      Scope: scopeField.value,
+      Scope: comboValue(scopeField.value),
       StartDate: startDateField.value,
       ExpectedEndDate: endDateField.value,
       UmbrellaProgram: umbrellaLabel.replace(/^\[(?:Program|Project)\]\s*/, ''),
@@ -215,8 +222,8 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       TechProject: comboValue(techProjectField.value),
       TechPhase: comboValue(techPhaseField.value),
     }
-    await siteApi.list('Projects').updateItem(project.Id, data, project['odata.etag'])
-    const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+    await siteApi.list(LIST_PROJECTS).updateItem(project.Id, data, project['odata.etag'])
+    const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(project.UUID)
     if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
 
     // Clean up old PM allocation when PM changes
@@ -233,6 +240,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   }
 
   async function saveGovernance() {
+    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return }
     const data = {
       BusinessLine: comboValue(businessLineField.value),
       Product: productField.value,
@@ -243,8 +251,8 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       Status: comboValue(statusField.value),
       PMScope: comboValue(pmScopeField.value),
     }
-    await siteApi.list('Projects').updateItem(project.Id, data, project['odata.etag'])
-    const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+    await siteApi.list(LIST_PROJECTS).updateItem(project.Id, data, project['odata.etag'])
+    const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(project.UUID)
     if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
 
     const oldEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
@@ -260,13 +268,14 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   }
 
   async function saveImpact() {
+    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return }
     const data = {
       TargetType: comboValue(targetTypeField.value),
       TargetValues: targetValuesField.value,
       TargetScope: comboValue(targetScopeField.value),
     }
-    await siteApi.list('Projects').updateItem(project.Id, data, project['odata.etag'])
-    const [fresh] = await siteApi.list('Projects').getItemByUUID(project.UUID)
+    await siteApi.list(LIST_PROJECTS).updateItem(project.Id, data, project['odata.etag'])
+    const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(project.UUID)
     if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
     isImpactDirty = false
   }
@@ -307,26 +316,28 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     }
   })
 
-  const saveChangesBtn = new Button('Save changes', {
-    variant: 'primary',
-    class: 'app-btn-primary',
-    onClickHandler: async () => {
-      saveChangesBtn.isLoading = true
-      const loading = Toast.loading('Saving...')
-      try {
-        if (isCharteryDirty) await saveCharter()
-        if (isGovernanceDirty) await saveGovernance()
-        if (isImpactDirty) await saveImpact()
-        loading.success('Saved')
-        updateStickyBar()
-      } catch (err) {
-        console.error('[EditTab] save changes:', err)
-        loading.error('Failed to save')
-      } finally {
-        if (saveChangesBtn.isAlive) saveChangesBtn.isLoading = false
-      }
-    }
-  })
+  const saveChangesBtn = canEdit
+    ? new Button('Save changes', {
+        variant: 'primary',
+        class: 'app-btn-primary',
+        onClickHandler: async () => {
+          saveChangesBtn.isLoading = true
+          const loading = Toast.loading('Saving...')
+          try {
+            if (isCharteryDirty) await saveCharter()
+            if (isGovernanceDirty) await saveGovernance()
+            if (isImpactDirty) await saveImpact()
+            loading.success('Saved')
+            updateStickyBar()
+          } catch (err) {
+            console.error('[EditTab] save changes:', err)
+            loading.error('Failed to save')
+          } finally {
+            if (saveChangesBtn.isAlive) saveChangesBtn.isLoading = false
+          }
+        }
+      })
+    : new Text('You have read-only access to this project.', { type: 'p', class: 'app-readonly-notice' })
 
   return new View([
     charterSection,

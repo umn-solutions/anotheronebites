@@ -24,6 +24,7 @@ import {
 	LIST_ALLOCATIONS,
 	GDPR_CLASSIFICATIONS,
 	ACCESS_LEVELS,
+	SCOPE_OPTIONS,
 } from "../../../utils/constants.js";
 
 import { getAppSiteApi } from "../../../utils/app-state.js";
@@ -322,8 +323,8 @@ export default defineRoute(async (config) => {
 				], { class: 'app-step2-card__heading-row' }),
 				createLabeledField("Project type", projectTypeCombo),
 				createLabeledField(
-					"Scope / out of scope",
-					new TextArea(scopeField, { placeholder: "Describe what is in scope and out of scope" }),
+					"Scope",
+					new ComboBox(scopeField, SCOPE_OPTIONS, { allowFiltering: false, placeholder: "Select..." }),
 				),
 				createLabeledField(
 					"Access level",
@@ -817,7 +818,7 @@ export default defineRoute(async (config) => {
 		if (userType.value === "Leading") {
 			data.ProjectManager = optionToUserIdentity(pmOwnerField.value) || '';
 			data.ProjectManagerEmail = optionToUserIdentity(pmOwnerField.value)?.email || '';
-			data.Scope = scopeField.value;
+			data.Scope = comboValue(scopeField.value);
 			const umbrellaLabel = umbrellaField.value?.label || '';
 			data.UmbrellaProgram = umbrellaLabel.replace(/^\[(?:Program|Project)\]\s*/, '');
 			data.GDPRClassification = comboValue(gdprField.value);
@@ -856,7 +857,8 @@ export default defineRoute(async (config) => {
 			console.error('[projects/new] submit error:', err);
 			loader.toggleLoader();
 			Toast.error(err?.message || 'Failed to create project');
-			nextBtn.isLoading = false;
+		} finally {
+			if (nextBtn.isAlive) nextBtn.isLoading = false;
 		}
 	}
 

@@ -32,7 +32,8 @@ export function createDefinitionsTab({ listApi, initialItems, categoryMap }) {
           await listApi.updateItem(item.Id, { IsActive: 'false' }, item['odata.etag'])
           loading.success('Disabled')
           await refreshAll()
-        } catch {
+        } catch (err) {
+          console.error('[DefinitionsTab] disable (IsActive=false) failed', err)
           loading.error('Failed to disable')
         } finally {
           if (disableBtn.isAlive) disableBtn.isLoading = false
@@ -58,7 +59,8 @@ export function createDefinitionsTab({ listApi, initialItems, categoryMap }) {
           await listApi.updateItem(item.Id, { IsActive: 'true' }, item['odata.etag'])
           loading.success('Enabled')
           await refreshAll()
-        } catch {
+        } catch (err) {
+          console.error('[DefinitionsTab] enable (IsActive=true) failed', err)
           loading.error('Failed to enable')
         } finally {
           if (enableBtn.isAlive) enableBtn.isLoading = false

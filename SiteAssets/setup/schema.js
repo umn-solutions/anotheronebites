@@ -65,6 +65,7 @@ export const SCHEMA = {
   ProjectUpdates: [
     { title: 'UUID', indexed: true },
     { title: 'ProjectUUID', indexed: true },
+    { title: 'Tag' },
     { title: 'Achievements', multiline: true },
     { title: 'Roadblocks', multiline: true },
     { title: 'ExpectedEndDate' },

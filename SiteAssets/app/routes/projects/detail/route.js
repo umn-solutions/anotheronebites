@@ -66,6 +66,8 @@ export default defineRoute(async (config) => {
     throw new SystemError('AccessDenied', 'You do not have access to this project', { breaksFlow: true })
   }
 
+  const canEdit = canPerformAction(effectiveRole, 'edit')
+
   const accessibleProjects = filterProjectsByAccess(allProjectsList, user.get('email'), user.accessLevel, delegations, userScopes)
   const umbrellaOptions = await buildUmbrellaOptions(siteApi, user, { excludeUuid: uuid })
 
@@ -212,7 +214,7 @@ export default defineRoute(async (config) => {
   // Capacity (3e)
   // ------------------------------------------------------------------
 
-  const capacityTab = createCapacityTab({ project, siteApi, uuid, allocations })
+  const capacityTab = createCapacityTab({ project, siteApi, uuid, allocations, effectiveRole })
 
   // ------------------------------------------------------------------
   // Overview (1c)
@@ -228,10 +230,10 @@ export default defineRoute(async (config) => {
     [
       { key: 'overview', label: 'Overview', view: overviewTab },
       { key: 'log', label: 'Project Log', view: updatesTab },
-      { key: 'edit', label: 'Edit', view: editTab },
+      { key: 'edit', label: 'Edit', view: editTab, disabled: !canEdit },
       { key: 'umbrella', label: 'Umbrella View', view: umbrellaTab },
       { key: 'access', label: 'Access', view: accessTab },
-      { key: 'capacity', label: 'Capacity', view: capacityTab }
+      { key: 'capacity', label: 'Capacity', view: capacityTab, disabled: !canEdit }
     ],
     {
       onTabChangeHandler: (tab) => {

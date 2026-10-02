@@ -1,4 +1,4 @@
-import { downloadFile, dataToCSV, dataToXLSX } from '../../../dist/nofbiz.excelparser.js'
+import { downloadFile, dataToCSV, dataToXLSX } from '../app/libs/nofbiz/nofbiz.excelparser.js'
 import { BUILTIN_FIELDS } from './schema.js'
 import { log } from './log.js'
 

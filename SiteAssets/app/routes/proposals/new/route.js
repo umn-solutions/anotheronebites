@@ -75,6 +75,7 @@ export default defineRoute(async (config) => {
 
     // Validated shortcut: no proposal is created -- go straight to the project wizard.
     if (validatedField.value) {
+      submitBtn.isLoading = true
       Router.navigateTo('projects/new')
       return
     }
@@ -93,18 +94,17 @@ export default defineRoute(async (config) => {
         Sponsor: optionToUserIdentity(sponsorField.value) || '',
         Status: statusField.value,
         PMScope: comboValue(pmScopeField.value),
-        Validated: 'false',
         SubmittedBy: { email: currentUser.get('email'), displayName: currentUser.get('displayName') },
         SubmittedByEmail: currentUser.get('email'),
       })
-      loader.toggleLoader()
       Toast.success('Proposal created')
       Router.navigateTo('/')
     } catch (err) {
       console.error('Create proposal failed:', err)
-      loader.toggleLoader()
       Toast.error('Failed to create proposal')
-      submitBtn.isLoading = false
+    } finally {
+      loader.toggleLoader()
+      if (submitBtn.isAlive) submitBtn.isLoading = false
     }
   }
 

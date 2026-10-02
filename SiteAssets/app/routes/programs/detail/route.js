@@ -10,7 +10,6 @@ import { buildUmbrellaOptions } from '../../../utils/umbrella.js'
 import { createLabeledField, createFormSection, createMultiPersonPicker, userIdentityToOption, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
 import { styleAfterRender } from '../../../utils/dynamic-style.js'
-import { loadDefinitions } from '../../../utils/definitions.js'
 import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 
 export default defineRoute(async (config) => {
@@ -21,11 +20,10 @@ export default defineRoute(async (config) => {
     throw new SystemError('MissingUUID', 'No program UUID provided in query params')
   }
 
-  const [allPrograms, allProjects, delegations, defs, scopeItems, userScopes] = await Promise.all([
+  const [allPrograms, allProjects, delegations, scopeItems, userScopes] = await Promise.all([
     siteApi.list(LIST_PROGRAMS).getItems(),
     siteApi.list(LIST_PROJECTS).getItems(),
     fetchAllDelegations(siteApi),
-    loadDefinitions(siteApi),
     loadScopes(siteApi),
     fetchUserScopes(siteApi, new CurrentUser().get('email')),
   ])

@@ -1,5 +1,5 @@
 import {
-  View, Container, Text, SiteApi
+  View, Container, Text
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_ALLOCATIONS, LIST_PROJECTS } from '../../../utils/constants.js'
 
@@ -10,13 +10,19 @@ export async function createTeamTab({ siteApi, pmGroupMembers }) {
     ])
   }
 
-  const [allAllocations, allProjects] = await Promise.all([
-    siteApi.list(LIST_ALLOCATIONS).getItems(),
-    siteApi.list(LIST_PROJECTS).getItems(
-      { Status: { value: ['Pipeline', 'On Hold', 'In Progress', 'Delayed'], operator: 'Or' } },
-      { viewFields: ['UUID', 'Title', 'Role'] }
-    ),
-  ])
+  let allAllocations, allProjects
+  try {
+    ;[allAllocations, allProjects] = await Promise.all([
+      siteApi.list(LIST_ALLOCATIONS).getItems(),
+      siteApi.list(LIST_PROJECTS).getItems(
+        { Status: { value: ['Pipeline', 'On Hold', 'In Progress', 'Delayed'], operator: 'Or' } },
+        { viewFields: ['UUID', 'Title', 'Role'] }
+      ),
+    ])
+  } catch (err) {
+    console.error('[TeamTab] failed to load allocations/projects', err)
+    return new View([new Text('Could not load team data. Please reload.', { type: 'p', class: 'app-error-message' })])
+  }
 
   const projectByUUID = Object.fromEntries(allProjects.map(p => [p.UUID, p]))
 

@@ -114,8 +114,8 @@ async function fetchPeoplePool() {
           });
         }
       }
-    } catch {
-      // skip failed letter searches silently
+    } catch (e) {
+      console.warn('[generate] searchUsers failed for a letter, continuing', e);
     }
   }
 
@@ -193,6 +193,7 @@ export async function generateData(siteApi, count) {
     offset = existing.length;
     log(`Existing items: ${offset}`, 'info');
   } catch (e) {
+    console.warn('[generate] could not read existing count, using offset 0', e);
     log('Could not read existing count, using offset 0: ' + e.message, 'error');
   }
 

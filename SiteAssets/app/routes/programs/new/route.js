@@ -68,14 +68,14 @@ export default defineRoute(async (config) => {
         SubmittedBy: { email: currentUser.get('email'), displayName: currentUser.get('displayName') },
         SubmittedByEmail: currentUser.get('email'),
       })
-      loader.toggleLoader()
       Toast.success('Program created')
       Router.navigateTo('/')
     } catch (err) {
       console.error('Create program failed:', err)
-      loader.toggleLoader()
       Toast.error('Failed to create program')
-      submitBtn.isLoading = false
+    } finally {
+      loader.toggleLoader()
+      if (submitBtn.isAlive) submitBtn.isLoading = false
     }
   }
 

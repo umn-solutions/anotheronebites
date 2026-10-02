@@ -2,6 +2,7 @@ import {
   View, Container, Text, NumberInput, Button, FormField, Toast, CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_ALLOCATIONS } from '../../../utils/constants.js'
+import { canPerformAction } from '../../../utils/access-control.js'
 import { styleAfterRender } from '../../../utils/dynamic-style.js'
 
 /**
@@ -61,9 +62,10 @@ function buildFteBarCell(fteValue) {
  * @param {{ project: object, siteApi: object, uuid: string, allocations: object[] }} params
  * @returns {View}
  */
-export function createCapacityTab({ project, siteApi, uuid, allocations }) {
+export function createCapacityTab({ project, siteApi, uuid, allocations, effectiveRole }) {
   const user = new CurrentUser()
   const currentEmail = user.get('email').toLowerCase()
+  const canEdit = canPerformAction(effectiveRole, 'edit')
 
   let currentAllocations = [...allocations]
 
@@ -181,6 +183,7 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
       variant: 'primary',
       class: 'app-btn-primary--row',
       onClickHandler: async () => {
+        if (!canEdit) { console.warn('[CapacityTab] blocked allocation save for non-editor role', effectiveRole); return }
         saveBtn.isLoading = true
         const loading = Toast.loading('Saving allocation...')
         try {
@@ -270,7 +273,7 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
     const rows = pmRows.map((pm, idx) => {
       const record = findAllocationForEmail(pm.email)
       const fte = record ? parseFloat(record.AllocationPercent) || 0 : 0
-      if (pm.email === currentEmail) {
+      if (canEdit && pm.email === currentEmail) {
         return buildEditableRow(pm, record || null, idx)
       }
       return buildReadOnlyRow(pm, fte, idx)
@@ -286,8 +289,13 @@ export function createCapacityTab({ project, siteApi, uuid, allocations }) {
   renderAllocationList()
 
   async function reloadAllocations() {
-    currentAllocations = await siteApi.list(LIST_ALLOCATIONS).getItems({ ProjectUUID: uuid })
-    renderAllocationList()
+    try {
+      currentAllocations = await siteApi.list(LIST_ALLOCATIONS).getItems({ ProjectUUID: uuid })
+      renderAllocationList()
+    } catch (err) {
+      console.warn('[CapacityTab] reloadAllocations failed', err)
+      Toast.warning('Allocation saved, but the list could not refresh — please reload.')
+    }
   }
 
   // -------------------------------------------------------------------

@@ -21,26 +21,27 @@ export function renderCards(scanResult, cardsEl) {
         <span class="card-actions">`;
 
     if (!result.exists) {
-      html += `<button class="btn btn-primary btn-sm" data-action="create-list" data-list="${listName}">Create List</button>`;
+      html += `<button type="button" class="btn btn-primary btn-sm" data-action="create-list" data-list="${listName}">Create List</button>`;
     } else {
       if (result.url) {
         html += `<a class="btn btn-secondary btn-sm" href="${result.url}" target="_blank" rel="noopener">View UI</a>`;
       }
       if (result.diff.some(d => d.status === 'MISSING' || d.status === 'INDEX')) {
-        html += `<button class="btn btn-primary btn-sm" data-action="sync-list" data-list="${listName}">Sync Fields</button>`;
+        html += `<button type="button" class="btn btn-primary btn-sm" data-action="sync-list" data-list="${listName}">Sync Fields</button>`;
       }
       const hideLabel = result.hidden ? 'Show' : 'Hide';
-      html += `<button class="btn btn-secondary btn-sm" data-action="toggle-hidden" data-list="${listName}">${hideLabel}</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="toggle-hidden" data-list="${listName}">${hideLabel}</button>`;
       const qeLabel = result.quickEditDisabled ? 'Enable Quick Edit' : 'Disable Quick Edit';
-      html += `<button class="btn btn-secondary btn-sm" data-action="toggle-quickedit" data-list="${listName}">${qeLabel}</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="toggle-quickedit" data-list="${listName}">${qeLabel}</button>`;
       const formsLabel = result.formsRedirected ? 'Restore Forms' : 'Redirect Forms';
-      html += `<button class="btn btn-secondary btn-sm" data-action="toggle-forms" data-list="${listName}">${formsLabel}</button>`;
-      html += `<button class="btn btn-secondary btn-sm" data-action="export-backup" data-list="${listName}">Export .txt</button>`;
-      html += `<button class="btn btn-secondary btn-sm" data-action="export-csv" data-list="${listName}">Export CSV</button>`;
-      html += `<button class="btn btn-secondary btn-sm" data-action="export-xlsx" data-list="${listName}">Export XLSX</button>`;
-      html += `<button class="btn btn-secondary btn-sm" data-action="import-list" data-list="${listName}">Import</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="toggle-forms" data-list="${listName}">${formsLabel}</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="setup-views" data-list="${listName}">Setup Views</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="export-backup" data-list="${listName}">Export .txt</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="export-csv" data-list="${listName}">Export CSV</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="export-xlsx" data-list="${listName}">Export XLSX</button>`;
+      html += `<button type="button" class="btn btn-secondary btn-sm" data-action="import-list" data-list="${listName}">Import</button>`;
       html += `<input type="file" class="file-import-list" data-list="${listName}" accept=".txt,.sparcbak" style="display:none" />`;
-      html += `<button class="btn btn-danger btn-sm" data-action="delete-list" data-list="${listName}">Delete List</button>`;
+      html += `<button type="button" class="btn btn-danger btn-sm" data-action="delete-list" data-list="${listName}">Delete List</button>`;
     }
 
     html += `</span></div><div class="card-body">`;
@@ -66,11 +67,11 @@ export function renderCards(scanResult, cardsEl) {
 
         let actions = '';
         if (d.status === 'MISSING') {
-          actions = `<button class="btn btn-primary btn-sm" data-action="create-field" data-list="${listName}" data-field="${d.field}">Create</button>`;
+          actions = `<button type="button" class="btn btn-primary btn-sm" data-action="create-field" data-list="${listName}" data-field="${d.field}">Create</button>`;
         } else if (d.status === 'EXTRA') {
-          actions = `<button class="btn btn-danger btn-sm" data-action="delete-field" data-list="${listName}" data-field="${d.field}">Delete</button>`;
+          actions = `<button type="button" class="btn btn-danger btn-sm" data-action="delete-field" data-list="${listName}" data-field="${d.field}">Delete</button>`;
         } else if (d.status === 'INDEX') {
-          actions = `<button class="btn btn-secondary btn-sm" data-action="fix-index" data-list="${listName}" data-field="${d.field}">Fix Index</button>`;
+          actions = `<button type="button" class="btn btn-secondary btn-sm" data-action="fix-index" data-list="${listName}" data-field="${d.field}">Fix Index</button>`;
         }
 
         html += `<tr>
@@ -101,9 +102,9 @@ export function renderSiteControls(scanResult, el) {
   const formsLabel = agg.allFormsRedirected ? 'Restore Forms (All)' : 'Redirect Forms (All)';
 
   el.innerHTML = `<span class="site-controls-label">Site-wide (${agg.count} lists):</span>
-    <button class="btn btn-secondary btn-sm" data-site-action="hidden">${hideLabel}</button>
-    <button class="btn btn-secondary btn-sm" data-site-action="quickedit">${qeLabel}</button>
-    <button class="btn btn-secondary btn-sm" data-site-action="forms">${formsLabel}</button>`;
+    <button type="button" class="btn btn-secondary btn-sm" data-site-action="hidden">${hideLabel}</button>
+    <button type="button" class="btn btn-secondary btn-sm" data-site-action="quickedit">${qeLabel}</button>
+    <button type="button" class="btn btn-secondary btn-sm" data-site-action="forms">${formsLabel}</button>`;
 }
 
 export function setBusy(state, btnScan) {

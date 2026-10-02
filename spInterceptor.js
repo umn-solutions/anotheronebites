@@ -463,7 +463,25 @@ var SPInterceptor = (function ($) {
       var uid = parseInt(groupsByIdMatch[1], 10);
       var ugroups = uid === STALE_USER_ID ? [] : store.groups;
       _log('GET', url, 'user groups (id ' + uid + ') -> ' + ugroups.length);
-      return _ok({ d: { results: ugroups } });
+      // Return BOTH envelopes: SiteApi.getUserGroupsByLogin reads `.value`
+      // directly, while people.api unwraps `.d`. Serving both keeps every caller
+      // working regardless of which shape it expects.
+      return _ok({ value: ugroups, d: { results: ugroups } });
+    }
+
+    // UIL login lookup -- maps any current-user login (primary or ghost) to a
+    // valid principal Id so getUserGroupsByLogin() can recover groups. The stale
+    // ghost (empty email, Id 999) is in no group, so recovery routes through the
+    // valid Id 1 whose getuserbyid(1)/groups returns store.groups. An empty or
+    // absent login resolves to nothing -> getUserGroupsByLogin returns [].
+    if (m === 'GET' && /\/_api\/web\/siteusers/.test(url)) {
+      var suFilter = _getQueryParam(url, '$filter');
+      var suDecoded = suFilter ? decodeURIComponent(suFilter) : '';
+      var suMatch = /LoginName\s+eq\s+'([^']*)'/i.exec(suDecoded);
+      var suLogin = suMatch ? suMatch[1].replace(/''/g, "'") : '';
+      var suValue = suLogin ? [{ Id: 1 }] : [];
+      _log('GET', url, 'siteusers login lookup "' + suLogin + '" -> ' + suValue.length);
+      return _ok({ value: suValue });
     }
 
     // User profile (PeopleManager)

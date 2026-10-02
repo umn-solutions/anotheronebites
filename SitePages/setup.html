@@ -138,7 +138,7 @@
       .list-card.open .card-header .toggle { transform: rotate(90deg); }
       .card-header .list-name { font-weight: 600; font-size: 0.95rem; }
       .card-header .summary { font-size: 0.8rem; color: var(--text-muted); }
-      .card-header .card-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+      .card-header .card-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.35rem; min-width: 0; }
 
       .card-body { display: none; padding: 0; }
       .list-card.open .card-body { display: block; }
@@ -236,10 +236,10 @@
       </div>
 
       <div class="action-bar">
-        <button id="btn-scan" class="btn btn-primary">Scan Site</button>
+        <button type="button" id="btn-scan" class="btn btn-primary">Scan Site</button>
         <div class="separator"></div>
-        <button id="btn-full-setup" class="btn btn-secondary" disabled>Full Setup</button>
-        <button id="btn-sync-all" class="btn btn-secondary" disabled>Sync All</button>
+        <button type="button" id="btn-full-setup" class="btn btn-secondary" disabled>Full Setup</button>
+        <button type="button" id="btn-sync-all" class="btn btn-secondary" disabled>Sync All</button>
         <div class="separator"></div>
         <select id="gen-count" class="gen-select" disabled>
           <option value="100">100 tasks</option>
@@ -248,11 +248,13 @@
           <option value="25000">25K tasks</option>
           <option value="50000">50K tasks</option>
         </select>
-        <button id="btn-gen-data" class="btn btn-secondary" disabled>Generate Data</button>
+        <button type="button" id="btn-gen-data" class="btn btn-secondary" disabled>Generate Data</button>
         <div class="separator"></div>
-        <button id="btn-backup-site" class="btn btn-secondary" disabled>Backup Site</button>
-        <button id="btn-restore-site" class="btn btn-secondary">Restore Site</button>
+        <button type="button" id="btn-backup-site" class="btn btn-secondary" disabled>Backup Site</button>
+        <button type="button" id="btn-restore-site" class="btn btn-secondary">Restore Site</button>
         <input type="file" id="file-restore" accept=".txt,.sparcbak" style="display:none" />
+        <div class="separator"></div>
+        <button type="button" id="btn-toggle-siteassets" class="btn btn-secondary" disabled>Hide SiteAssets</button>
         <span id="scan-time" class="scan-time"></span>
       </div>
 
@@ -263,7 +265,7 @@
       </div>
 
       <div id="log-panel" class="log-panel">
-        <button class="log-toggle" id="log-toggle">
+        <button type="button" class="log-toggle" id="log-toggle">
           <span class="toggle">&#9654;</span> Activity Log
         </button>
         <pre class="log-content" id="log"></pre>

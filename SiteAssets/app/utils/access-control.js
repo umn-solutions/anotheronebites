@@ -34,7 +34,7 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
   if (siteAccessLevel === 'ADMIN') return 'owner'
 
   // 2. Direct member: PMMembers, SubmittedBy, or the designated Project Manager -> owner
-  const email = userEmail.toLowerCase()
+  const email = (userEmail || '').toLowerCase()
   const pmMemberEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
   const projectManagerEmail = (project.ProjectManagerEmail || '').trim().toLowerCase()
   if (
@@ -120,7 +120,7 @@ export function filterProjectsByAccess(projects, userEmail, siteAccessLevel, all
  */
 export function filterByScopeOrCreator(items, userEmail, siteAccessLevel, userScopes = new Set(), publicWhenUnscoped = false) {
   if (siteAccessLevel === 'ADMIN') return items
-  const email = userEmail.toLowerCase()
+  const email = (userEmail || '').toLowerCase()
   return items.filter(item => {
     const hasScope = !!(item.PMScope && String(item.PMScope).trim())
     const isCreator = !!(item.SubmittedByEmail && item.SubmittedByEmail.toLowerCase() === email)
@@ -183,7 +183,7 @@ export function filterProgramsByAccess(programs, userEmail, siteAccessLevel, use
 export async function fetchUserDelegations(siteApi, userEmail) {
   const listApi = siteApi.list(LIST_PROJECT_ACCESS)
   try {
-    const items = await listApi.getItems({ UserEmail: userEmail })
+    const items = await listApi.getItems({ UserEmail: (userEmail || '').toLowerCase() })
     return items
   } catch (err) {
     console.error('[fetchUserDelegations] failed', err)

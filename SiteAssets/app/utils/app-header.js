@@ -190,7 +190,9 @@ function buildHeaderHTML(to) {
   let user = null
   try {
     user = new CurrentUser()
-  } catch (_) { /* CurrentUser may not be initialized yet on first load */ }
+  } catch (_) {
+    console.warn('[app-header] CurrentUser not available', _)
+  }
 
   const leftHTML = isHome
     ? logoHTML()

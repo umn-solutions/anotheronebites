@@ -68,6 +68,7 @@ export async function scanSite(siteApi, schema, builtinFields, appUrl) {
   try {
     siteLists = await siteApi.getLists();
   } catch (e) {
+    console.error('[scan.scanSite] getLists failed', e);
     log('Failed to fetch site lists: ' + e.message, 'error');
     return null;
   }
@@ -94,6 +95,7 @@ export async function scanSite(siteApi, schema, builtinFields, appUrl) {
         result[listName].diff = computeDiff(schema[listName], liveFields, builtinFields);
         log(listName + ': ' + diffSummary(result[listName].diff));
       } catch (e) {
+        console.error('[scan] getFields failed for ' + listName, e);
         log(listName + ': failed to read fields -- ' + e.message, 'error');
       }
 
@@ -105,10 +107,14 @@ export async function scanSite(siteApi, schema, builtinFields, appUrl) {
         console.warn('[scan] DefaultView read failed for ' + listName, e);
       }
       try {
-        const info = await spGET(`${listBase}?$select=DefaultNewFormUrl,DefaultEditFormUrl`);
-        result[listName].formsRedirected = !!appUrl && info?.DefaultNewFormUrl === appUrl;
+        // Forms redirect is a web-scoped ScriptLink custom action named per
+        // list (SPARC_FormRedirect_<listId>). Detect it by presence.
+        const listId = String(liveList?.Id ?? '').replace(/[{}]/g, '').toLowerCase();
+        const acts = await spGET(`${_spPageContextInfo.webAbsoluteUrl}/_api/web/UserCustomActions?$select=Name`);
+        const items = acts?.value ?? acts?.d?.results ?? [];
+        result[listName].formsRedirected = !!listId && items.some(a => (a.Name || '') === `SPARC_FormRedirect_${listId}`);
       } catch (e) {
-        console.warn('[scan] forms read failed for ' + listName, e);
+        console.warn('[scan] form-redirect action read failed for ' + listName, e);
       }
     } else {
       result[listName].diff = schema[listName].map(sf => ({

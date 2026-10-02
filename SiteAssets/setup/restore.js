@@ -1,7 +1,6 @@
 import { log } from './log.js'
 import { createList, createField, fixIndex, setListHidden } from './actions.js'
 import { setQuickEdit, setFormsRedirect } from './views.js'
-import { scanSite } from './scan.js'
 
 // -- File reading & validation -----------------------------------------------
 
@@ -115,22 +114,37 @@ export async function restoreConfig(siteApi, backup, appUrl) {
   log('Config restore complete.', 'success');
 }
 
-// -- System key filter -------------------------------------------------------
+// -- Writable field extraction -----------------------------------------------
+// Restore ONLY the list's own schema fields, minus read-only built-ins. An
+// allowlist (not a blocklist) is used so SharePoint's computed/read-only
+// properties returned by getItems -- ServerRedirectedEmbedUri/Url,
+// ContentTypeId, FileSystemObjectType, OData__* etc. -- are never written back.
+// Writing those 400s (e.g. "null value at ServerRedirectedEmbedUri").
 
-const SYSTEM_KEYS = new Set([
-  'Id', 'odata.etag', 'Created', 'Modified', 'Author', 'Editor',
-  'Attachments', 'ContentType', 'ContentTypeId', 'GUID',
-  '__metadata',
-]);
+const READONLY_BUILTINS = new Set(['Id', 'ID', 'Created', 'Modified', 'Author', 'Editor']);
 
-function stripSystemKeys(row) {
-  const clean = {};
+// Only true text fields are restorable. User/Lookup/Choice/DateTime/etc. are
+// navigation or typed properties -- SharePoint rejects a plain string for them
+// ("...navigation property; a StartArray/StartObject/null value was expected").
+const WRITABLE_TYPES = new Set(['Text', 'Note', 'MultilineText']);
+
+function isWritableField(title, fieldTypes) {
+  if (READONLY_BUILTINS.has(title)) return false;
+  const type = (fieldTypes || {})[title];
+  return type === undefined || WRITABLE_TYPES.has(type); // unknown (older backup) -> assume text
+}
+
+function writableFields(row, backupFields, fieldTypes) {
+  const allowed = new Set(
+    (backupFields || []).map(f => f.title).filter(t => isWritableField(t, fieldTypes))
+  );
+  const out = {};
   for (const [k, v] of Object.entries(row)) {
-    if (SYSTEM_KEYS.has(k)) continue;
-    if (k.startsWith('OData__')) continue;
-    clean[k] = v;
+    if (!allowed.has(k)) continue;
+    if (v === null || v === undefined) continue;               // empty field -> omit (toFieldValue rejects null)
+    out[k] = (typeof v === 'object') ? JSON.stringify(v) : v;  // arrays/objects -> JSON string (SP stores strings)
   }
-  return clean;
+  return out;
 }
 
 // -- Data restore (upsert by UUID) -------------------------------------------
@@ -149,6 +163,16 @@ export async function restoreData(siteApi, backup, listName) {
     return;
   }
 
+  // Warn about non-text fields (User/Lookup/etc.) that cannot be restored.
+  const skipped = (listBackup.fields || [])
+    .map(f => f.title)
+    .filter(t => !READONLY_BUILTINS.has(t) && !isWritableField(t, listBackup.fieldTypes));
+  if (skipped.length) {
+    console.warn('[restore.restoreData] skipping non-text fields (not restorable via SPARC)',
+      { listName, fields: skipped.map(t => ({ name: t, type: (listBackup.fieldTypes || {})[t] })) });
+    log(`[restore] ${listName}: skipping non-text fields -- ${skipped.join(', ')} (User/Lookup/etc. can't be restored)`, 'info');
+  }
+
   const listApi = siteApi.list(listName);
 
   // Check whether this list has a UUID field in the backup
@@ -159,12 +183,12 @@ export async function restoreData(siteApi, backup, listName) {
     let created = 0;
     let failed = 0;
     for (const row of items) {
-      const fields = stripSystemKeys(row);
+      const fields = writableFields(row, listBackup.fields, listBackup.fieldTypes);
       try {
         await listApi.createItem(fields);
         created++;
       } catch (e) {
-        console.error('[restore.restoreData] createItem failed (no-UUID mode)', { listName, e });
+        console.error('[restore.restoreData] createItem failed (no-UUID mode)', { listName, fields, err: e });
         log(`[restore] ${listName}: insert failed -- ${e.message}`, 'error');
         failed++;
       }
@@ -194,7 +218,7 @@ export async function restoreData(siteApi, backup, listName) {
   let failed = 0;
 
   for (const row of items) {
-    const fields = stripSystemKeys(row);
+    const fields = writableFields(row, listBackup.fields, listBackup.fieldTypes);
     const uuid = row.UUID;
     const live = uuid ? liveMap.get(uuid) : null;
 
@@ -207,7 +231,7 @@ export async function restoreData(siteApi, backup, listName) {
         created++;
       }
     } catch (e) {
-      console.error('[restore.restoreData] write failed', { listName, uuid, live: !!live, e });
+      console.error('[restore.restoreData] write failed', { listName, uuid, live: !!live, fields, err: e });
       log(`[restore] ${listName}: ${live ? 'update' : 'insert'} failed (UUID: ${uuid}) -- ${e.message}`, 'error');
       failed++;
     }

@@ -7,8 +7,9 @@ import {
   createList, deleteList, setListHidden,
   createField, deleteField, fixIndex,
   syncList, fullSetup, syncAll,
+  getSiteAssetsHidden, setSiteAssetsHidden,
 } from './actions.js'
-import { setQuickEdit, setFormsRedirect } from './views.js'
+import { setQuickEdit, setFormsRedirect, setDefaultViewFields, setAdminViewFields, adminViewFieldsFor } from './views.js'
 import { exportSiteBackup, exportListBackup, exportListCSV, exportListXLSX } from './backup.js'
 import { readBackupFile, restoreSite, restoreList } from './restore.js'
 
@@ -30,6 +31,7 @@ const genCountSelect = document.getElementById('gen-count');
 const btnBackupSite = document.getElementById('btn-backup-site');
 const btnRestoreSite = document.getElementById('btn-restore-site');
 const fileRestoreInput = document.getElementById('file-restore');
+const btnToggleSiteAssets = document.getElementById('btn-toggle-siteassets');
 
 initLog(logEl);
 
@@ -75,6 +77,13 @@ async function doScan() {
   const anyListExists = Object.values(result.scanResult).some(r => r.exists);
   btnBackupSite.disabled = !anyListExists;
 
+  if (btnToggleSiteAssets) {
+    const saHidden = await getSiteAssetsHidden();
+    btnToggleSiteAssets.disabled = false;
+    btnToggleSiteAssets.dataset.hidden = String(saHidden);
+    btnToggleSiteAssets.textContent = saHidden ? 'Show SiteAssets' : 'Hide SiteAssets';
+  }
+
   if (genEnabled) {
     const tasksExists = result.scanResult.Tasks?.exists ?? false;
     btnGenData.disabled = !tasksExists;
@@ -114,9 +123,15 @@ async function doGenerateData() {
   if (busy) return;
   busy = true;
   setBusy(true, btnScan);
-  await generateData(siteApi, parseInt(genCountSelect.value, 10));
-  busy = false;
-  setBusy(false, btnScan);
+  try {
+    await generateData(siteApi, parseInt(genCountSelect.value, 10));
+  } catch (e) {
+    console.error('[index.doGenerateData]', e);
+    log('Data generation failed: ' + (e.message || 'unknown error'), 'error');
+  } finally {
+    busy = false;
+    setBusy(false, btnScan);
+  }
 }
 
 // -- Event delegation --------------------------------------------------------
@@ -153,6 +168,10 @@ cardsEl.addEventListener('click', async (e) => {
   else if (action === 'toggle-hidden') await setListHidden(listName, !scanResult[listName]?.hidden);
   else if (action === 'toggle-quickedit') await setQuickEdit(listName, !!scanResult[listName]?.quickEditDisabled);
   else if (action === 'toggle-forms') await setFormsRedirect(listName, !scanResult[listName]?.formsRedirected, APP_URL);
+  else if (action === 'setup-views') {
+    await setDefaultViewFields(listName);
+    await setAdminViewFields(listName, adminViewFieldsFor(SCHEMA[listName]));
+  }
   else if (action === 'export-backup') {
     await exportListBackup(siteApi, listName, scanResult, APP_URL);
     busy = false;
@@ -274,6 +293,17 @@ btnScan.addEventListener('click', doScan);
 btnFullSetup.addEventListener('click', doFullSetup);
 btnSyncAll.addEventListener('click', doSyncAll);
 if (genEnabled) btnGenData.addEventListener('click', doGenerateData);
+
+// -- Hide/Show SiteAssets library --------------------------------------------
+btnToggleSiteAssets?.addEventListener('click', async () => {
+  if (busy) return;
+  busy = true;
+  setButtonBusy(btnToggleSiteAssets, '...');
+  const currentlyHidden = btnToggleSiteAssets.dataset.hidden === 'true';
+  await setSiteAssetsHidden(!currentlyHidden);
+  busy = false;
+  await doScan();
+});
 
 // -- Backup Site -------------------------------------------------------------
 btnBackupSite.addEventListener('click', async () => {

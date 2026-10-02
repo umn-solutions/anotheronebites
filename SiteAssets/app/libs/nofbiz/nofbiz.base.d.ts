@@ -609,6 +609,8 @@ declare class Modal extends Container {
     closeOnFocusLoss: boolean;
     protected _onCloseHandler: () => void;
     protected _onOpenHandler: () => void;
+    /** Real backdrop DOM node appended to `_containerSelector`; sibling of the overlay so transforms don't trap it. */
+    protected _backdropEl: JQuery<HTMLElement> | null;
     constructor(children: HTMDNode, props?: ModalProps);
     render(): void;
     open(): void;
@@ -1129,6 +1131,16 @@ interface PeopleSearchOptions {
      * @default false
      */
     raw?: boolean;
+    /**
+     * When true, the People Picker will accept and fabricate resolved entries for
+     * any well-formed email address, even ones that have no matching AD account.
+     * This is SharePoint's external-invite behavior and should stay off for
+     * AD-internal applications -- leaving it off means the server never fabricates
+     * email entries, so both raw and normalized results contain only real AD
+     * principals.
+     * @default false
+     */
+    allowEmailAddresses?: boolean;
 }
 interface UserProfile {
     employeeId: string;
@@ -2895,17 +2907,22 @@ declare function extractComboBoxValue(value: FormFieldType): SPFieldValue;
  */
 declare function toFieldValue(value: SPFieldValue): string;
 /**
- * Parse a raw SharePoint string value into a typed JavaScript value.
+ * Parse a raw SharePoint field value into a typed JavaScript value.
+ *
+ * Accepts `unknown` input so callers passing already-parsed values (arrays,
+ * objects, booleans, numbers) do not crash at runtime. Non-string values that
+ * are not null / empty-string are returned as-is, making this function
+ * idempotent: `fromFieldValue(fromFieldValue(x)) === fromFieldValue(x)`.
  *
  * Returns `null` for null, undefined, or empty string input.
  * The developer provides the expected type via the generic parameter.
  *
- * Gating rules (shared with `parseFieldValues`):
+ * Gating rules (applied only when `raw` is a non-empty string):
  * - `"true"` / `"false"` -> `boolean`
  * - Strings starting with `{` or `[` -> `JSON.parse()` (warn + return raw string on failure)
  * - All other strings (including numeric strings like `"42"`) -> returned as-is (unchanged)
  */
-declare function fromFieldValue<T>(raw: string): T | null;
+declare function fromFieldValue<T>(raw: unknown): T | null;
 
 interface CAMLQueryResponse<T> {
     value: T[];
@@ -3392,6 +3409,41 @@ declare function getUserProfile(loginName: string): Promise<UserProfile>;
  * @throws When `ensureUser` fails (user cannot be resolved on the site).
  */
 declare function getFullUserDetails(loginName: string, siteApi?: SiteApi): Promise<FullUserDetails>;
+/**
+ * Resolves any email address or login name to a single, deterministic
+ * {@link FullUserDetails} entity, even on farms where a person has multiple
+ * UIL/AD account entries (real + ghost) that share a samAccountName but carry
+ * different emails or `Key` values.
+ *
+ * **Why this exists:** `getFullUserDetails` resolves one login to one entity,
+ * but the caller may only know an alias email that belongs to a ghost account,
+ * not the canonical one. `resolveCanonicalUser` builds the full account cluster
+ * and deterministically picks a single entry regardless of which email or login
+ * the caller supplies.
+ *
+ * **Algorithm:**
+ * 1. Seed search: `searchUsers(input, { maximumSuggestions: 30, raw: true })`,
+ *    keep only resolved entries.
+ * 2. Extract distinct samAccountNames from the seed (`parseEmployeeId(Key)`).
+ * 3. For each sam, `searchUsers(sam, { maximumSuggestions: 50, raw: true })`,
+ *    filter resolved, dedup by `Key` -- this is the full account cluster.
+ * 4. Pick canonical entry via {@link _pickCanonical} (Email presence > score >
+ *    lex Key).
+ * 5. Return `getFullUserDetails(canonical.Key, siteApi)`.
+ *
+ * **Limitations:** A person whose accounts share neither samAccountName nor
+ * email cannot be merged from AD data alone. An explicit alias map would be
+ * needed -- that is out of scope here.
+ *
+ * @param input - Any email address or login name (claims-encoded or plain) for
+ *   the target person.
+ * @param siteApi - Optional {@link SiteApi} instance; defaults to a new instance
+ *   pointing at the current site.
+ * @returns A consolidated {@link FullUserDetails} for the canonical account.
+ * @throws {SystemError} `'UserNotResolved'` when the seed search finds no
+ *   resolved results for `input`.
+ */
+declare function resolveCanonicalUser(input: string, siteApi?: SiteApi): Promise<FullUserDetails>;
 
 /**
  * Augments a {@link SystemError} with optional contextual properties that
@@ -4039,5 +4091,5 @@ declare global {
     }
 }
 
-export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
+export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveCanonicalUser, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
 export type { AccordionGroupProps, AccordionItemProps, AugmentedSystemError, BuiltInIconName, ButtonProps, CAMLCondition, CAMLOperator, CAMLOrderByField, CAMLQueryObject, CAMLQueryResponse, CAMLValueOperator, CardProps, CardVariants, ChildrenOptions, ComboBoxDataset, ComboBoxOptionProps, ComboBoxProps, ContainerProps, ContainerTags, ContextStoreEntry, CreateFieldOptions, CreateListOptions, DATE_FORMATS, DateInputProps, DateRangeInputProps, DateRangeRules, DebouncedInputProps, DialogProps, DialogVariants, ErrorBoundaryProps, ErrorOptions, FieldLabelPosition, FieldLabelProps, FormControlProps, FormFieldProps, FormFieldType, FragmentProps, FullUserDetails, GetItemsOptions, GetItemsPagedOptions, GroupHierarchyEntry, HTMDElementInterface, HTMDElementProps, HTMDNode, HTMDSingleNode, IconName, IconSource, ImageProps, InitializeOptions, LabelTargetProvider, LinkButtonProps, ListApiOptions, ListProps, LoaderProps, ModalProps, NavigationGuardFn, NavigationOptions, NumberInputProps, PaginatedResult, PeoplePickerProps, PeopleSearchOptions, PeopleSearchResult, PeopleSearchResultData, ProfileProperty, ResolveEmailsResult, RouteConfig, RouteOptions, RoutePaths, RouterProps, RuntimeEventListenerOptions, RuntimeEventOptions, SPCollectionResponse, SPField, SPFieldValue, SPGroup, SPItemWithETag, SPList, SPRequestOptions, SPSimpleValue, SPUser, SPWeb, SendEmailArgs, SendEmailResult, SidePanelProps, SiteUserRow, StyleResourceOptions, TabConfig, TabGroupProps, TextAreaProps, TextInputProps, TextProps, ToastLoadingController, ToastOptions, ToastPromiseMessages, ToastType, UUID, Unsubscribe, UserIdentityProperties, UserProfile, UserProfilePayload, ViewProps, ViewSwitcherProps, __INTERNAL_DEBUG_OPTIONS, pageResetOptions };
