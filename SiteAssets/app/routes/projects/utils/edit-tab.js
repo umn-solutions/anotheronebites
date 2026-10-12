@@ -1,7 +1,7 @@
 import {
   View, Container, Text, TextInput, DateInput, ComboBox, PeoplePicker, FormField, Button, Toast
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS, LIST_PROJECTS, SCOPE_OPTIONS } from '../../../utils/constants.js'
+import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS, LIST_PROJECTS } from '../../../utils/constants.js'
 import { canPerformAction } from '../../../utils/access-control.js'
 import {
   createLabeledField, createFormSection, createFormRow,
@@ -9,7 +9,7 @@ import {
   comboValue, optionToUserIdentity
 } from '../../../utils/form-helpers.js'
 
-export function createEditTab({ project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null }) {
+export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmbrellaPicker, seedUmbrellaCurrent, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null }) {
 
   const canEdit = canPerformAction(effectiveRole, 'edit')
 
@@ -23,11 +23,9 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   const objectivesField = new FormField({ value: project.Objectives || '' })
   const projectTypeField = new FormField({ value: project.ProjectType || '' })
   const gdprField = new FormField({ value: project.GDPRClassification || '' })
-  const scopeField = new FormField({ value: project.Scope || '' })
   const startDateField = new FormField({ value: project.StartDate || '' })
   const endDateField = new FormField({ value: project.ExpectedEndDate || '' })
-  const matchingUmbrella = umbrellaOptions.find(o => o.value === project.LinkedPrograms) || null
-  const umbrellaField = new FormField({ value: matchingUmbrella || '' })
+  const umbrellaField = new FormField({ value: umbrellaCurrent || '' })
 
   const techProjectField = new FormField({ value: project.TechProject || '' })
   const techPhaseField = new FormField({ value: project.TechPhase || '' })
@@ -47,9 +45,9 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   })
 
   const pmPicker = new PeoplePicker(projectManagerField, { placeholder: 'Select Project Manager' })
-  if (project.ProjectManager?.email) {
-    pmPicker.resolveUser(project.ProjectManager.email)
-  }
+  const pmResolve = project.ProjectManager?.email
+    ? pmPicker.resolveUser(project.ProjectManager.email)
+    : null
 
   // Read-only expected end date with reason line (if umbrella program set, end date is derived)
   const hasUmbrella = !!(project.LinkedPrograms || project.UmbrellaProgram)
@@ -65,6 +63,9 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       ], { class: 'app-readonly-date-field' })
     : endDateInput
 
+  const umbrellaPicker = createUmbrellaPicker(umbrellaField, umbrellaCtx)
+  seedUmbrellaCurrent(umbrellaPicker, umbrellaField, umbrellaCurrent)
+
   const charterSection = createFormSection('Charter', [
     new Container([
       new Text('* required', { type: 'span', class: 'app-section-meta' })
@@ -75,7 +76,6 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
     ]),
     createLabeledField('Context', new TextInput(contextField)),
     createLabeledField('Objectives', new TextInput(objectivesField)),
-    createLabeledField('Scope', new ComboBox(scopeField, SCOPE_OPTIONS, { allowFiltering: false, placeholder: 'Select...' })),
     createFormRow([
       createLabeledField('Project Type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
       createLabeledField('GDPR Classification', new ComboBox(gdprField, GDPR_CLASSIFICATIONS, { allowFiltering: false }))
@@ -84,7 +84,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       createLabeledField('Start Date', new DateInput(startDateField, { format: 'yyyy-mm-dd' })),
       createLabeledField('Expected End Date', endDateField_)
     ]),
-    createLabeledField('Umbrella Project', new ComboBox(umbrellaField, umbrellaOptions, { allowFiltering: true, allowCreate: true })),
+    createLabeledField('Umbrella Project', umbrellaPicker),
     techFieldsContainer
   ])
 
@@ -96,9 +96,9 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   const productField = new FormField({ value: project.Product || '' })
   const sponsorField = new FormField({ value: '' })
   const sponsorPicker = new PeoplePicker(sponsorField, { placeholder: 'Select sponsor' })
-  if (project.Sponsor?.email) {
-    sponsorPicker.resolveUser(project.Sponsor.email)
-  }
+  const sponsorResolve = project.Sponsor?.email
+    ? sponsorPicker.resolveUser(project.Sponsor.email)
+    : null
   const stakeholdersField = new FormField({ value: project.Stakeholders || [] })
   const pmMembersField = new FormField({ value: project.PMMembers || [] })
   const statusField = new FormField({ value: project.Status || '' })
@@ -174,7 +174,7 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
   }
 
   // Mark charter dirty when any field changes
-  const charterFields = [projectNameField, contextField, objectivesField, projectTypeField, gdprField, scopeField, startDateField, endDateField, umbrellaField, techProjectField, techPhaseField, projectManagerField]
+  const charterFields = [projectNameField, contextField, objectivesField, projectTypeField, gdprField, startDateField, endDateField, umbrellaField, techProjectField, techPhaseField, projectManagerField]
   charterFields.forEach(f => f.subscribe(() => { isCharteryDirty = true; updateStickyBar() }))
 
   const governanceFields = [businessLineField, productField, sponsorField, stakeholdersField, pmMembersField, statusField, pmScopeField]
@@ -182,6 +182,19 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
 
   const impactFields = [targetTypeField, targetValuesField, targetScopeField]
   impactFields.forEach(f => f.subscribe(() => { isImpactDirty = true; updateStickyBar() }))
+
+  // Re-baseline the dirty tracker: the Project Manager / Sponsor people-pickers
+  // resolve their saved value via an async AD round-trip (resolveUser), which
+  // sets the bound FormField AFTER the subscribers above are attached and thus
+  // falsely flags sections dirty on load. Once those pre-fills settle, clear the
+  // flags so a freshly opened Edit tab reads clean. (A rare user edit made within
+  // the sub-second resolve window would also be cleared -- acceptable trade-off.)
+  Promise.allSettled([pmResolve, sponsorResolve].filter(Boolean)).then(() => {
+    isCharteryDirty = false
+    isGovernanceDirty = false
+    isImpactDirty = false
+    updateStickyBar()
+  })
 
   // -------------------------------------------------------------------
   // Allocation helper
@@ -214,7 +227,6 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       Objectives: objectivesField.value,
       ProjectType: comboValue(projectTypeField.value),
       GDPRClassification: comboValue(gdprField.value),
-      Scope: comboValue(scopeField.value),
       StartDate: startDateField.value,
       ExpectedEndDate: endDateField.value,
       UmbrellaProgram: umbrellaLabel.replace(/^\[(?:Program|Project)\]\s*/, ''),
@@ -294,10 +306,9 @@ export function createEditTab({ project, umbrellaOptions, projectTypes, techProj
       objectivesField.value = project.Objectives || ''
       projectTypeField.value = project.ProjectType || ''
       gdprField.value = project.GDPRClassification || ''
-      scopeField.value = project.Scope || ''
       startDateField.value = project.StartDate || ''
       endDateField.value = project.ExpectedEndDate || ''
-      umbrellaField.value = umbrellaOptions.find(o => o.value === project.LinkedPrograms) || ''
+      seedUmbrellaCurrent(umbrellaPicker, umbrellaField, umbrellaCurrent)
       techProjectField.value = project.TechProject || ''
       techPhaseField.value = project.TechPhase || ''
       businessLineField.value = project.BusinessLine || ''

@@ -208,6 +208,25 @@ export async function fetchAllDelegations(siteApi) {
 }
 
 /**
+ * Pure variant of fetchUserScopes: derive the Set of PMScope names that
+ * include the user, from already-loaded scope items (no fetch). Used by
+ * routes that have already called loadScopes() to avoid a duplicate request.
+ * @param {object[]} scopeItems - items from loadScopes()
+ * @param {string} userEmail
+ * @returns {Set<string>}
+ */
+export function deriveUserScopes(scopeItems, userEmail) {
+  const email = (userEmail || '').toLowerCase()
+  const scopeNames = new Set()
+  for (const scope of (scopeItems || [])) {
+    const members = Array.isArray(scope.Members) ? scope.Members : []
+    const isMember = members.some(m => m && typeof m === 'object' && (m.email || '').toLowerCase() === email)
+    if (isMember) scopeNames.add(scope.Title)
+  }
+  return scopeNames
+}
+
+/**
  * Fetch the set of PMScope names that include the given user as a member.
  * Reads the Scopes list, checks each active scope's Members array for the
  * user's email (case-insensitive). Returns an empty Set on any error
@@ -219,21 +238,7 @@ export async function fetchAllDelegations(siteApi) {
 export async function fetchUserScopes(siteApi, userEmail) {
   try {
     const activeScopes = await loadScopes(siteApi)
-    const email = (userEmail || '').toLowerCase()
-    const scopeNames = new Set()
-
-    for (const scope of activeScopes) {
-      const members = Array.isArray(scope.Members) ? scope.Members : []
-      const isMember = members.some(m => {
-        if (!m || typeof m !== 'object') return false
-        return (m.email || '').toLowerCase() === email
-      })
-      if (isMember) {
-        scopeNames.add(scope.Title)
-      }
-    }
-
-    return scopeNames
+    return deriveUserScopes(activeScopes, userEmail)
   } catch (err) {
     console.error('[fetchUserScopes] failed', err)
     return new Set()

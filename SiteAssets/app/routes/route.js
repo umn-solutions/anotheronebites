@@ -15,8 +15,6 @@ import {
 	LIST_PROGRAMS,
 	LIST_PROPOSALS,
 	ITEM_TYPES,
-	PROJECT_STATUSES,
-	PROJECT_TYPES,
 	APP_NAME,
 } from "../utils/constants.js";
 import { loadScopes, getScopeOptions } from "../utils/scopes.js";
@@ -62,7 +60,7 @@ export default defineRoute(async (config) => {
 				}))
 				.catch((err) => {
 					console.error("[Home] Failed to load definitions:", err);
-					return { types: PROJECT_TYPES, statuses: PROJECT_STATUSES };
+					return { types: [], statuses: [] };
 				}),
 		]).then(([scopes, defs]) => [scopes, defs.types, defs.statuses]);
 

@@ -1,22 +1,14 @@
-import {
-  LIST_DEFINITIONS,
-  PROJECT_TYPES, TECH_PROJECTS, TECH_PHASES, PROJECT_STATUSES,
-  BUSINESS_LINES, TARGET_TYPES, TARGET_VALUE_TYPES,
-} from './constants.js'
+import { LIST_DEFINITIONS } from './constants.js'
 
-// Code defaults per category. Definitions-list values override these; when a
-// category has no active rows (or the list is empty/absent), the ComboBox still
-// receives a valid dataset instead of undefined -- passing undefined to
+// Admin-curated option categories live in the Definitions list -- NEVER hardcoded
+// here or in constants.js. These are only the category KEYS (not option values),
+// used to guarantee `defs.get(category)` returns an array (empty if the admin has
+// defined no active rows) rather than undefined -- passing undefined to
 // `new ComboBox(field, dataset)` throws "cannot read undefined length".
-const CATEGORY_FALLBACKS = {
-  ProjectTypes: PROJECT_TYPES,
-  TechProjects: TECH_PROJECTS,
-  TechPhases: TECH_PHASES,
-  ProjectStatuses: PROJECT_STATUSES,
-  BusinessLines: BUSINESS_LINES,
-  TargetTypes: TARGET_TYPES,
-  TargetValueTypes: TARGET_VALUE_TYPES,
-}
+const KNOWN_CATEGORIES = [
+  'ProjectTypes', 'TechProjects', 'TechPhases', 'ProjectStatuses',
+  'BusinessLines', 'TargetTypes', 'TargetValueTypes',
+]
 
 export async function loadDefinitions(siteApi) {
   const items = await siteApi.list(LIST_DEFINITIONS).getItems()
@@ -26,10 +18,10 @@ export async function loadDefinitions(siteApi) {
     if (!map.has(item.Title)) map.set(item.Title, [])
     map.get(item.Title).push(item.Value)
   }
-  // Guarantee every known category resolves to a non-empty array.
-  for (const [category, fallback] of Object.entries(CATEGORY_FALLBACKS)) {
-    const values = map.get(category)
-    if (!values || values.length === 0) map.set(category, fallback)
+  // Guarantee every known category resolves to an array (never undefined), so
+  // ComboBoxes bound to an empty category render an empty, selectable dataset.
+  for (const category of KNOWN_CATEGORIES) {
+    if (!map.has(category)) map.set(category, [])
   }
   return map
 }

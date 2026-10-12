@@ -378,7 +378,7 @@
   padding: 12px 0 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* Meta line: monospace date + tag pill + author */
@@ -428,20 +428,42 @@
   color: var(--app-fg-muted);
 }
 
-/* Body text */
-.app-timeline-body {
+/* Entry title headline */
+.app-timeline-title {
+  font-size: var(--font-size-400);
+  font-weight: var(--font-weight-semibold);
+  color: var(--app-fg);
+  margin: 0;
+}
+
+/* Update description body */
+.app-timeline-desc {
   font-size: var(--font-size-300);
   line-height: var(--line-height-300);
   color: var(--app-fg);
   max-width: 720px;
   margin: 0;
+  white-space: pre-wrap;
 }
 
-.app-timeline-body--roadblock {
-  color: var(--app-fg-muted);
+.app-timeline-section__label {
+  font-size: var(--font-size-100);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--app-text-muted);
 }
 
-.app-timeline-body--nextsteps {
+/* Recorded estimated end date footer */
+.app-timeline-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-timeline-end-date {
+  font-family: var(--font-family-monospace);
+  font-size: var(--font-size-200);
   color: var(--app-fg-muted);
 }
 
@@ -848,6 +870,69 @@
   padding-top: 8px;
   border-top: var(--stroke-thin) solid var(--app-border-subtle);
   margin-top: 8px;
+}
+
+.app-modal-hint {
+  font-size: var(--font-size-200);
+  color: var(--app-text-muted);
+  margin: -4px 0 0;
+}
+
+/* New-update dialog: field row (Tag | end date) */
+.app-update-fieldrow {
+  display: flex;
+  gap: var(--space-l);
+}
+.app-update-fieldrow > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Validated field wrapper + inline error message */
+.app-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.app-field__error:empty {
+  display: none;
+}
+.app-field__error {
+  font-size: var(--font-size-200);
+  color: var(--color-danger-fg);
+}
+.app-field--error .nofbiz__textinput,
+.app-field--error .nofbiz__textarea,
+.app-field--error .nofbiz__dateinput__input,
+.app-field--error .nofbiz__combobox__searchbar__input {
+  border-color: var(--color-danger-primary);
+}
+.app-field--error .nofbiz__fieldlabel label {
+  color: var(--color-danger-fg);
+}
+
+/* Error summary box at top of the dialog */
+.app-form-error-summary:empty {
+  display: none;
+}
+.app-form-error-summary {
+  background: var(--color-danger-bg);
+  border-left: var(--stroke-thickest) solid var(--color-danger-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-m) var(--space-l);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.app-form-error-summary__title {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-danger-fg);
+  margin: 0;
+}
+.app-form-error-summary__detail {
+  font-size: var(--font-size-200);
+  color: var(--color-danger-fg);
+  margin: 0;
 }
 
 /* Close date field: monospace, max-width 220 */

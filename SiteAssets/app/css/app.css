@@ -245,6 +245,35 @@ select:focus-visible {
 	display: block;
 }
 
+.nofbiz-reset > #app-route-loader-mount {
+	display: block;
+}
+
+/* Route/boot loader visual. The nofbiz Loader base is only a transparent blur
+   overlay, which is invisible over a blank boot page. app-route-loader adds a
+   solid surface and a centered spinner (the base .nofbiz__loader centers its
+   generated ::after via place-content/place-items). */
+.app-route-loader {
+	position: fixed;
+	background: var(--app-surface-base);
+}
+
+.app-route-loader::after {
+	content: "";
+	width: 36px;
+	height: 36px;
+	border: 3px solid var(--app-border);
+	border-top-color: var(--app-primary);
+	border-radius: var(--radius-circular);
+	animation: app-route-loader-spin 0.8s linear infinite;
+}
+
+@keyframes app-route-loader-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .app-header {
 	position: sticky;
 	top: 0;
@@ -387,12 +416,6 @@ select:focus-visible {
 	font-weight: var(--font-weight-semibold);
 	color: var(--app-fg);
 	margin: 0;
-}
-
-.app-record-header__meta {
-	font-size: var(--font-size-200);
-	color: var(--app-fg-muted);
-	font-family: var(--font-family-monospace);
 }
 
 /* Tab row: override TabGroup so active = green underline per spec.
@@ -675,8 +698,15 @@ select:focus-visible {
 
 /* Scrim override to spec color */
 .app-modal-shell.nofbiz__dialog::backdrop,
-.nofbiz__modal-scrim {
+.nofbiz__backdrop {
 	background: rgba(36, 36, 36, 0.45);
+}
+
+/* The dialog container receives programmatic focus on open; suppress the
+   default black focus outline (the interactive fields keep their own rings). */
+.app-modal-shell.nofbiz__dialog:focus,
+.app-modal-shell.nofbiz__dialog:focus-visible {
+	outline: none;
 }
 
 /* 4px top intent bar */
@@ -696,12 +726,24 @@ select:focus-visible {
 	background: var(--app-primary);
 }
 
+/* Create dialog is a touch wider to give the form room to breathe. */
+.app-modal-shell--create.nofbiz__dialog {
+	width: 600px;
+}
+
 /* Body */
 .app-modal-shell .nofbiz__dialog__content {
-	padding: var(--space-xxl);
+	padding: var(--space-l) var(--space-xxl) var(--space-xxl);
 	gap: var(--space-l);
+	margin: 0;
 	display: flex;
 	flex-direction: column;
+}
+
+.app-modal-shell .nofbiz__dialog__content > * {
+	border-top: none;
+	padding-left: 0;
+	padding-right: 0;
 }
 
 /* Title row */
@@ -709,11 +751,19 @@ select:focus-visible {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	font-size: var(--font-size-500);
-	line-height: var(--line-height-500);
 	font-weight: var(--font-weight-semibold);
 	color: var(--app-fg);
-	margin-bottom: 0;
+	margin: 0;
+	padding: var(--space-xxl) var(--space-xxl) 0;
+	border-bottom: none;
+}
+
+/* Modal title — compact, consistent with page section headings */
+.app-modal-shell .nofbiz__dialog__header .nofbiz__text {
+	font-size: var(--font-size-600);
+	line-height: var(--line-height-600);
+	margin: 0;
+	padding: 0;
 }
 
 /* Action row */
@@ -823,7 +873,7 @@ select:focus-visible {
 	padding: 0;
 }
 
-.projects-detail-route > * {
+.projects-detail-route > *:not(.nofbiz__backdrop):not(.nofbiz__dialog) {
 	width: 100%;
 	max-width: var(--app-detail-max-width);
 }
@@ -835,8 +885,8 @@ select:focus-visible {
 	padding: calc(var(--app-spacing) * 3);
 }
 
-.proposals-detail-route > *,
-.programs-detail-route > * {
+.proposals-detail-route > *:not(.nofbiz__backdrop):not(.nofbiz__dialog),
+.programs-detail-route > *:not(.nofbiz__backdrop):not(.nofbiz__dialog) {
 	width: 100%;
 	max-width: var(--app-max-width);
 }
@@ -1430,23 +1480,6 @@ select:focus-visible {
 	gap: var(--space-mNudge);
 }
 
-/* Validated shortcut: set apart from the fields above as a distinct mode switch */
-.app-create-validated-field {
-	display: flex;
-	align-items: center;
-	gap: var(--space-sNudge);
-	margin-top: var(--space-xs);
-	padding-top: var(--space-mNudge);
-	border-top: var(--stroke-thin) solid var(--app-border-subtle);
-	cursor: pointer;
-}
-
-.app-create-validated-label {
-	font-size: var(--font-size-300);
-	color: var(--app-fg);
-	user-select: none;
-}
-
 /* Section card heading row */
 .app-create-section__heading-row {
 	display: flex;
@@ -1487,72 +1520,3 @@ select:focus-visible {
 	margin-left: auto;
 }
 
-/* Status pill group for proposal create */
-.app-status-pill-group {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-s);
-}
-
-.app-status-pill-group__label {
-	font-size: var(--font-size-100);
-	line-height: var(--line-height-100);
-	font-weight: var(--font-weight-semibold);
-	text-transform: uppercase;
-	letter-spacing: 0.08em;
-	color: var(--app-fg-muted);
-}
-
-.app-status-pill-group__pills {
-	display: flex;
-	gap: var(--space-s);
-	flex-wrap: wrap;
-}
-
-/* Individual selectable status pill — combined selector overrides nofbiz__button defaults */
-.app-status-pill.nofbiz__button,
-.app-status-pill .nofbiz__button {
-	font-size: var(--font-size-200);
-	line-height: var(--line-height-200);
-	font-weight: var(--font-weight-semibold);
-	padding: 5px var(--space-mNudge);
-	border-radius: var(--radius-circular);
-	height: auto;
-	min-height: unset;
-	/* Size to content and sit inline in the flex row, not full-width block */
-	width: auto;
-	flex: 0 0 auto;
-	cursor: pointer;
-	background: var(--app-bg-surface);
-	color: var(--app-fg-muted);
-	border: var(--stroke-thin) solid var(--app-border-strong);
-	transition: background var(--app-transition-fast), border-color var(--app-transition-fast), color var(--app-transition-fast);
-	user-select: none;
-}
-
-.app-status-pill.nofbiz__button:hover,
-.app-status-pill .nofbiz__button:hover {
-	background: var(--app-bg-page);
-}
-
-/* Selected states — one per supported status */
-.app-status-pill--selected-pipeline.nofbiz__button,
-.app-status-pill--selected-pipeline .nofbiz__button {
-	background: var(--app-status-pipeline-bg);
-	color: var(--app-status-pipeline-fg);
-	border: 1.5px solid var(--app-status-pipeline-fg);
-}
-
-.app-status-pill--selected-on-hold.nofbiz__button,
-.app-status-pill--selected-on-hold .nofbiz__button {
-	background: var(--app-status-on-hold-bg);
-	color: var(--app-status-on-hold-fg);
-	border: 1.5px solid var(--app-status-on-hold-fg);
-}
-
-.app-status-pill--selected-under-review.nofbiz__button,
-.app-status-pill--selected-under-review .nofbiz__button {
-	background: var(--app-status-progress-bg);
-	color: var(--app-status-progress-fg);
-	border: 1.5px solid var(--app-status-progress-fg);
-}

@@ -8,6 +8,7 @@ import {
 } from "./libs/nofbiz/nofbiz.base.js";
 import { initAppState } from './utils/app-state.js';
 import { initAppHeader, updateAppHeader } from './utils/app-header.js';
+import { showRouteLoader } from './utils/route-loader.js'
 
 pageReset({
 	themePath: resolvePath("@/libs/nofbiz/nofbiz.base.css"),
@@ -16,6 +17,7 @@ pageReset({
 
 new StyleResource("@/css/app.css");
 
+showRouteLoader();
 await initAppState();
 
 // Mount the global app header above the Router outlet.

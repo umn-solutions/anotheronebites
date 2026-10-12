@@ -1,9 +1,9 @@
 import {
-  View, Container, Text, TextInput, DateInput, Button, FormField,
+  View, Container, Text, TextInput, TextArea, DateInput, Button, FormField,
   Dialog, Toast, generateUUIDv4, CurrentUser, ComboBox
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_PROJECTS, LIST_PROJECT_UPDATES } from '../../../utils/constants.js'
-import { createLabeledField, createFormRow } from '../../../utils/form-helpers.js'
+import { createLabeledField } from '../../../utils/form-helpers.js'
 import { canPerformAction } from '../../../utils/access-control.js'
 import { styleAfterRender } from '../../../utils/dynamic-style.js'
 
@@ -25,6 +25,7 @@ const TAG_CLASS = {
 function markerColor(index) {
   return MARKER_RAMP[Math.min(index, MARKER_RAMP.length - 1)]
 }
+
 
 export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uuid, effectiveRole, onStatusChange }) {
   let updates = initialUpdates
@@ -83,16 +84,15 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
         submittedBy ? new Text(`· ${submittedBy}`, { type: 'span', class: 'app-timeline-meta__author' }) : null
       ].filter(Boolean), { class: 'app-timeline-meta' })
 
-      const bodyLines = [
-        u.Achievements ? new Text(u.Achievements, { type: 'p', class: 'app-timeline-body' }) : null,
-        u.Roadblocks ? new Text(`Roadblocks: ${u.Roadblocks}`, { type: 'p', class: 'app-timeline-body app-timeline-body--roadblock' }) : null,
-        u.NextSteps ? new Text(`Next steps: ${u.NextSteps}`, { type: 'p', class: 'app-timeline-body app-timeline-body--nextsteps' }) : null,
-      ].filter(Boolean)
-
       const rightCol = new Container([
+        u.Title ? new Text(u.Title, { type: 'h4', class: 'app-timeline-title' }) : null,
         metaLine,
-        ...bodyLines
-      ], { class: 'app-timeline-entry__right' })
+        u.Description ? new Text(u.Description, { type: 'p', class: 'app-timeline-desc' }) : null,
+        u.ExpectedEndDate ? new Container([
+          new Text('Est. end date', { type: 'span', class: 'app-timeline-section__label' }),
+          new Text(u.ExpectedEndDate, { type: 'span', class: 'app-timeline-end-date' })
+        ], { class: 'app-timeline-end' }) : null,
+      ].filter(Boolean), { class: 'app-timeline-entry__right' })
 
       return new Container([
         styleAfterRender(new Container([], { class: 'app-timeline-entry__left' }), { '--marker-color': color }),
@@ -107,7 +107,7 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
     const query = updateSearchField.value.trim().toLowerCase()
     if (query) {
       filtered = filtered.filter(u => {
-        const haystack = [u.Title, u.Achievements, u.Roadblocks, u.NextSteps]
+        const haystack = [u.Title, u.Description]
           .map(s => (s || '').toLowerCase())
           .join(' ')
         return haystack.includes(query)
@@ -153,21 +153,69 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
   // New Update dialog
   // -------------------------------------------------------------------
 
-  const updateTitleField = new FormField({ value: '' })
-  const achievementsField = new FormField({ value: '' })
-  const roadblocksField = new FormField({ value: '' })
-  const updateEndDateField = new FormField({ value: project.ExpectedEndDate || '' })
-  const nextStepsField = new FormField({ value: '' })
+  const updateTitleField = new FormField({ value: '', validatorCallback: v => typeof v === 'string' && v.trim().length > 0 })
+  const descriptionField = new FormField({ value: '', validatorCallback: v => typeof v === 'string' && v.trim().length > 0 })
+  const updateEndDateField = new FormField({ value: project.ExpectedEndDate || '', validatorCallback: v => !v || !project.StartDate || v >= project.StartDate })
   const updateTagField = new FormField({ value: 'Update' })
+
+  // Error summary box shown at the top of the dialog when submit fails.
+  // Hidden automatically via CSS :empty when it has no children.
+  const errorSummary = new Container([], { class: 'app-form-error-summary' })
+
+  // Wrap a labeled field with an inline error-message slot and expose setError().
+  function validatedField(labelText, inputComponent, required) {
+    const msg = new Container([], { class: 'app-field__error' })
+    const wrap = new Container([
+      createLabeledField(labelText, inputComponent, required),
+      msg
+    ], { class: 'app-field' })
+    return {
+      node: wrap,
+      setError(text) {
+        const el = wrap.instance?.[0]
+        if (el) el.classList.toggle('app-field--error', !!text)
+        msg.children = text ? [new Text(text, { type: 'span' })] : []
+      }
+    }
+  }
+
+  const titleVF = validatedField('Title', new TextInput(updateTitleField, { placeholder: 'Short headline' }), true)
+  const descVF  = validatedField('Description', new TextArea(descriptionField, { placeholder: 'Describe what changed...', rows: 5 }), true)
+  const tagVF   = validatedField('Tag', new ComboBox(updateTagField, UPDATE_TAGS, { allowFiltering: false }))
+  const eedVF   = validatedField('Project estimated end date', new DateInput(updateEndDateField, { format: 'yyyy-mm-dd' }))
+
+  function clearUpdateErrors() {
+    errorSummary.children = []
+    titleVF.setError(null); descVF.setError(null); eedVF.setError(null)
+  }
+
+  const cancelUpdateBtn = new Button('Cancel', {
+    variant: 'secondary',
+    class: 'app-btn-secondary',
+    onClickHandler: () => newUpdateDialog.close()
+  })
 
   const submitUpdateBtn = new Button('Post update', {
     variant: 'primary',
     class: 'app-btn-primary',
     onClickHandler: async () => {
-      if (!updateTitleField.value?.trim()) {
-        Toast.error('Title is required')
+      const errs = []
+      if (!updateTitleField.value?.trim()) { titleVF.setError('Required.'); errs.push('Title is required') } else titleVF.setError(null)
+      if (!descriptionField.value?.trim()) { descVF.setError('Required.'); errs.push('a description is required') } else descVF.setError(null)
+      const eed = updateEndDateField.value
+      if (eed && project.StartDate && eed < project.StartDate) {
+        eedVF.setError(`Must be on or after ${project.StartDate}.`)
+        errs.push('the end date cannot be before the project start date')
+      } else eedVF.setError(null)
+
+      if (errs.length) {
+        errorSummary.children = [
+          new Text(`${errs.length} field${errs.length > 1 ? 's' : ''} need attention`, { type: 'p', class: 'app-form-error-summary__title' }),
+          new Text(errs.join(' · '), { type: 'p', class: 'app-form-error-summary__detail' })
+        ]
         return
       }
+
       submitUpdateBtn.isLoading = true
       const loading = Toast.loading('Posting update...')
       try {
@@ -181,10 +229,8 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
           UUID: updateUuid,
           ProjectUUID: uuid,
           Tag: tagVal,
-          Achievements: achievementsField.value,
-          Roadblocks: roadblocksField.value,
+          Description: descriptionField.value,
           ExpectedEndDate: updateEndDateField.value,
-          NextSteps: nextStepsField.value,
           UpdateDate: new Date().toISOString().split('T')[0],
           SubmittedBy: { email: currentUser.get('email'), displayName: currentUser.get('displayName') },
           SubmittedByEmail: currentUser.get('email')
@@ -207,33 +253,22 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
     }
   })
 
-  const cancelUpdateBtn = new Button('Cancel', {
-    variant: 'secondary',
-    class: 'app-btn-secondary',
-    onClickHandler: () => newUpdateDialog.close()
-  })
-
   const newUpdateDialog = new Dialog({
     closeOnFocusLoss: false,
     class: 'app-modal-shell app-modal-shell--create',
     title: 'New update',
     onCloseHandler: () => {
       updateTitleField.value = ''
-      achievementsField.value = ''
-      roadblocksField.value = ''
-      nextStepsField.value = ''
+      descriptionField.value = ''
       updateEndDateField.value = project.ExpectedEndDate || ''
       updateTagField.value = 'Update'
+      clearUpdateErrors()
     },
     content: [
-      createLabeledField('Title', new TextInput(updateTitleField, { placeholder: 'What happened?' })),
-      createLabeledField('Achievements', new TextInput(achievementsField, { placeholder: 'What was achieved?' })),
-      createLabeledField('Roadblocks', new TextInput(roadblocksField, { placeholder: 'What is blocking?' })),
-      createLabeledField('Next steps', new TextInput(nextStepsField, { placeholder: 'What comes next?' })),
-      createFormRow([
-        createLabeledField('Tag', new ComboBox(updateTagField, UPDATE_TAGS, { allowFiltering: false })),
-        createLabeledField('Date', new DateInput(updateEndDateField, { format: 'yyyy-mm-dd' }))
-      ]),
+      errorSummary,
+      titleVF.node,
+      descVF.node,
+      new Container([ tagVF.node, eedVF.node ], { class: 'app-update-fieldrow' }),
       new Container([cancelUpdateBtn, submitUpdateBtn], { class: 'app-modal-actions' })
     ]
   })

@@ -24,17 +24,6 @@ function initials(name) {
 }
 
 /**
- * Reduce a GDPR classification to its parenthetical acronym.
- * "Non-sensitive Personal Data: Other Information (OPD)" -> "OPD".
- * Falls back to the original string when no acronym is present.
- */
-function gdprAcronym(gdpr) {
-	if (!gdpr) return "";
-	const m = String(gdpr).match(/\(([^)]+)\)/);
-	return m ? m[1] : String(gdpr);
-}
-
-/**
  * Shared card shell used by all three factories.
  *
  * Layout:
@@ -43,19 +32,20 @@ function gdprAcronym(gdpr) {
  *   divider
  *   context — CSS-clamped, 2-line ellipsis
  *   divider
- *   Row 3  — project type (left) + GDPR classification (right)
+ *   Row 3  — two colored pills: entry-type pill (always) + project-type pill (when non-empty)
  *
  * @param {object} opts
  * @param {string}   opts.title
  * @param {string}   [opts.status]
  * @param {string}   [opts.pm]          PM or sponsor display name
  * @param {string}   [opts.description] Context text
- * @param {string}   [opts.type]        ProjectType / BusinessLine / etc.
- * @param {string}   [opts.gdpr]        GDPRClassification (projects only)
+ * @param {string}   [opts.type]        ProjectType / BusinessLine / etc. — shown as second pill when non-empty
+ * @param {string}   opts.entryType     Entry category label shown in first pill ("Project" / "Program" / "Proposal")
+ * @param {string}   opts.entryClass    CSS modifier for the entry pill (e.g. "app-result-card__pill--project")
  * @param {string}   extraClass         Additional CSS class on the card root
  * @param {Function} onClick
  */
-function createResultCard({ title, status, pm, description, type, gdpr }, extraClass, onClick) {
+function createResultCard({ title, status, pm, description, type, entryType, entryClass }, extraClass, onClick) {
 	const pmName = pm || "";
 
 	const headerRow = new Container(
@@ -87,23 +77,13 @@ function createResultCard({ title, status, pm, description, type, gdpr }, extraC
 
 	const divider2 = new Container([], { class: "app-result-card__divider" });
 
-	// Footer: single left-aligned overline "type · GDPR-acronym". Only render
-	// non-empty values, with a middot separator when both are present.
-	const gdprShort = gdprAcronym(gdpr);
-	const footerChildren = [];
+	// Footer: two colored pills — entry-type pill (always) + project-type pill (when non-empty).
+	const footerChildren = [
+		new Text(entryType, { type: "span", class: "app-result-card__pill " + entryClass }),
+	];
 	if (type) {
 		footerChildren.push(
-			new Text(type, { type: "span", class: "app-result-card__footer-item" }),
-		);
-	}
-	if (type && gdprShort) {
-		footerChildren.push(
-			new Text("·", { type: "span", class: "app-result-card__footer-sep" }),
-		);
-	}
-	if (gdprShort) {
-		footerChildren.push(
-			new Text(gdprShort, { type: "span", class: "app-result-card__footer-item" }),
+			new Text(type, { type: "span", class: "app-result-card__pill app-result-card__pill--type" }),
 		);
 	}
 	const footerRow = new Container(footerChildren, {
@@ -147,7 +127,8 @@ export function createProjectCard(project) {
 			pm: extractDisplayName(project.ProjectManager),
 			description: project.Context,
 			type: project.ProjectType || "",
-			gdpr: project.GDPRClassification || "",
+			entryType: "Project",
+			entryClass: "app-result-card__pill--project",
 		},
 		"app-result-card--project",
 		() => Router.navigateTo("projects/detail", { query: { uuid: project.UUID } }),
@@ -162,7 +143,8 @@ export function createProgramCard(program) {
 			pm: extractDisplayName(program.ProgramSponsor),
 			description: program.Context,
 			type: "",
-			gdpr: "",
+			entryType: "Program",
+			entryClass: "app-result-card__pill--program",
 		},
 		"app-result-card--program",
 		() => Router.navigateTo("programs/detail", { query: { uuid: program.UUID } }),
@@ -177,7 +159,8 @@ export function createProposalCard(proposal) {
 			pm: extractDisplayName(proposal.Sponsor),
 			description: proposal.Context,
 			type: proposal.ProjectType || proposal.BusinessLine || "",
-			gdpr: "",
+			entryType: "Proposal",
+			entryClass: "app-result-card__pill--proposal",
 		},
 		"app-result-card--proposal",
 		() => Router.navigateTo("proposals/detail", { query: { uuid: proposal.UUID } }),

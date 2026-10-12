@@ -11,34 +11,18 @@ export const LIST_DEFINITIONS = 'Definitions'
 export const LIST_SCOPES = 'Scopes'
 
 // Dropdown Datasets
-
-export const PROJECT_TYPES = ['Consultancy', 'Transformation', 'Lean', 'PMO', 'Tech', 'Data']
-
-export const TECH_PROJECTS = ['SharePoint', 'PowerBI', 'Dataiku', 'LightDev', 'Automation', 'AI', 'LLM', 'Centric/NOA']
-
-export const TECH_PHASES = ['Discovery', 'Framing', 'Business Case', 'Dev', 'Live', 'CM']
+//
+// Admin-managed option sets -- ProjectTypes, TechProjects, TechPhases,
+// ProjectStatuses, BusinessLines, TargetTypes, TargetValueTypes -- are NOT
+// defined here. Admins curate them in the Definitions list; they are loaded at
+// runtime via loadDefinitions(siteApi) + defs.get('<Category>'). Never hardcode
+// these in constants, comboboxes, detail pages, or search filters.
 
 export const GDPR_CLASSIFICATIONS = [
   'Contact Information (CPD)',
   'Non-sensitive Personal Data: Other Information (OPD)',
   'Sensitive Personal Data (SPD)'
 ]
-
-export const PROJECT_STATUSES = ['Pipeline','On Hold', 'In Progress', 'Completed', 'Stopped', 'Delayed']
-
-export const SCOPE_OPTIONS = ['In Scope', 'Out of Scope']
-
-export const TARGET_TYPES = [
-  'User Experience',
-  'Client Experience',
-  'Revenues',
-  'Cost Avoidance',
-  'RWA',
-  'Operational Risk',
-  'Employee Satisfaction'
-]
-
-export const TARGET_VALUE_TYPES = ['EUR', 'USD', 'GBP', 'FTE']
 
 export const TARGET_SCOPES = [
   'Global', 'EMEA', 'AMER', 'APAC',
@@ -52,8 +36,6 @@ export const TARGET_SCOPES = [
   'South Africa', 'Nigeria', 'Egypt', 'Morocco', 'Kenya',
   'UAE', 'Saudi Arabia', 'Turkey', 'Israel', 'Russia'
 ]
-
-export const BUSINESS_LINES = ['CCG', 'GCM', 'TB', 'CCCO', 'ESG', 'Finance', 'HR', 'COO', 'Transversal']
 
 export const ITEM_TYPES = ['Project', 'Program', 'Proposal']
 

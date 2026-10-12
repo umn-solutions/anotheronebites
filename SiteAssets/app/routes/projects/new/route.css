@@ -9,13 +9,17 @@
    -------------------------------------------------------------------------- */
 
 .app-wizard-page {
+	/* Centred content width for all wizard steps. Narrower than the 1440 detail
+	   cap so the form is visibly centred (like the program/proposal create forms)
+	   instead of stretching edge-to-edge. */
+	--app-wizard-max-width: 1024px;
 	display: flex;
 	flex-direction: column;
-	/* Fill the area below the 64px header. The page grows with tall content and
-	   #root scrolls (see rule below) instead of an inner container — this lets
-	   ComboBox dropdowns (position:absolute) overflow past the cards without being
-	   clipped by an intermediate scroll box. Step 1 centres itself (see
-	   .app-step1-view); step 2+ flow from the top. */
+	/* Centre the whole content group (title + form sections + controls) both
+	   vertically and horizontally within the area below the 64px global header.
+	   Children must NOT grow (no flex:1) or the group would stretch instead of
+	   centring. Taller-than-viewport content still scrolls via the #root rule. */
+	justify-content: center;
 	min-height: calc(100vh - 64px);
 	background: var(--app-bg-surface);
 }
@@ -32,15 +36,14 @@
    ========================================================================== */
 
 .app-step1-view {
-	/* Fill the page and centre the role cards vertically (the page no longer
-	   centres its children, so step 1 owns its own centring). */
-	flex: 1 0 auto;
+	/* Sizes to content (no grow) so the page's justify-content:center can centre
+	   the whole group vertically. Cards are horizontally centred via align-items. */
+	flex: 0 0 auto;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	justify-content: center;
 	gap: 32px;
-	padding: 40px 32px;
+	padding: 32px;
 	background: var(--app-bg-surface);
 }
 
@@ -51,16 +54,6 @@
 	gap: 12px;
 	max-width: 640px;
 	text-align: center;
-}
-
-.app-step1-overline {
-	font-size: var(--font-size-100);
-	line-height: var(--line-height-100);
-	font-weight: var(--font-weight-semibold);
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
-	color: var(--app-primary);
-	margin: 0;
 }
 
 .app-step1-question {
@@ -156,20 +149,6 @@
 	margin: 0;
 }
 
-.app-role-card__count {
-	font-size: var(--font-size-200);
-	font-weight: var(--font-weight-semibold);
-	margin-top: 4px;
-}
-
-.app-role-card__count--leading {
-	color: var(--app-primary-active);
-}
-
-.app-role-card__count--contributing {
-	color: var(--app-fg-muted);
-}
-
 /* ---------- Step 1 footer ---------- */
 
 .app-step1-footer {
@@ -188,89 +167,19 @@
 /* The Continue button shares app-btn-primary from app.css */
 
 /* ==========================================================================
-   STEPPER (used in step 2+ header)
-   ========================================================================== */
-
-.app-stepper {
-	display: flex;
-	align-items: center;
-	gap: 0;
-}
-
-.app-stepper__step {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-
-/* Dot */
-.app-stepper__dot {
-	width: 22px;
-	height: 22px;
-	border-radius: 50%;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 11px;
-	font-weight: var(--font-weight-semibold);
-	flex-shrink: 0;
-	border: 1.5px solid transparent;
-}
-
-.app-stepper__dot--done {
-	background: var(--app-primary);
-	border-color: var(--app-primary);
-	color: var(--color-fg-inverted);
-}
-
-.app-stepper__dot--current {
-	background: var(--app-wash);
-	border-color: var(--app-primary);
-	color: var(--app-primary-active);
-}
-
-.app-stepper__dot--upcoming {
-	background: var(--app-bg-surface);
-	border-color: var(--app-border-strong);
-	color: var(--app-fg-disabled);
-}
-
-/* Label */
-.app-stepper__label {
-	font-size: var(--font-size-200);
-	font-weight: var(--font-weight-semibold);
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--app-fg-muted);
-}
-
-.app-stepper__label--current {
-	color: var(--app-primary-active);
-}
-
-/* Connector line between steps */
-.app-stepper__connector {
-	width: 32px;
-	height: 1px;
-	background: var(--app-border);
-	margin: 0 4px;
-	flex-shrink: 0;
-}
-
-/* ==========================================================================
    STEP 2 — details (3-column grid)
    ========================================================================== */
 
 .app-step2-view {
-	flex: 1 0 auto;
+	flex: 0 0 auto;
 	display: flex;
 	flex-direction: column;
 }
 
-/* Header band */
+/* Header band — part of the centred column (no full-bleed bar), so the whole
+   group reads as one centred block. Divider sits under the capped title row. */
 .app-step2-header-wrapper {
-	background: var(--app-bg-surface);
-	border-bottom: var(--stroke-thin) solid var(--app-border);
+	background: transparent;
 }
 
 .app-step2-header {
@@ -278,11 +187,10 @@
 	align-items: center;
 	gap: 32px;
 	padding: 20px 32px;
-	background: var(--app-bg-surface);
-	/* Cap + centre content so wide screens get side whitespace; the wrapper's
-	   border-bottom stays full-bleed. */
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+	/* Cap + centre content so the title row lines up with the form/controls */
 	width: 100%;
-	max-width: var(--app-detail-max-width);
+	max-width: var(--app-wizard-max-width);
 	margin: 0 auto;
 	box-sizing: border-box;
 }
@@ -348,10 +256,9 @@
 	gap: 16px;
 	padding: 24px 32px;
 	align-content: start;
-	flex: 1 0 auto;
 	/* Cap + centre the 3-column form so it doesn't stretch edge-to-edge on wide screens */
 	width: 100%;
-	max-width: var(--app-detail-max-width);
+	max-width: var(--app-wizard-max-width);
 	margin: 0 auto;
 	box-sizing: border-box;
 }
@@ -403,37 +310,6 @@
 	margin: 0;
 }
 
-/* ---------- Before-you-continue panel (flat wash, below the grid) ---------- */
-
-.app-byc-panel {
-	/* Cap + centre to line up with the form cards above */
-	width: 100%;
-	max-width: calc(var(--app-detail-max-width) - 64px);
-	margin: 0 auto 16px;
-	box-sizing: border-box;
-	background: var(--app-wash);
-	border-radius: 8px;
-	padding: 16px 20px;
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-}
-
-.app-byc-overline {
-	font-size: var(--font-size-100);
-	line-height: var(--line-height-100);
-	font-weight: var(--font-weight-semibold);
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-	color: var(--app-primary-active);
-}
-
-.app-byc-body {
-	font-size: var(--font-size-300);
-	line-height: var(--line-height-300);
-	color: var(--app-fg);
-}
-
 /* ---------- Sticky footer ---------- */
 
 .app-step2-footer {
@@ -443,12 +319,10 @@
 	padding: 12px 32px;
 	background: var(--app-bg-surface);
 	border-top: var(--stroke-thin) solid var(--app-border);
-	position: sticky;
-	bottom: 0;
-	z-index: 10;
+	/* Flows with the content (not pinned) so it centres as part of the group */
 	/* Cap + centre so the action bar lines up with the capped form content */
 	width: 100%;
-	max-width: var(--app-detail-max-width);
+	max-width: var(--app-wizard-max-width);
 	margin: 0 auto;
 	box-sizing: border-box;
 }
@@ -485,7 +359,7 @@
 
 .app-wizard-step-body {
 	width: 100%;
-	max-width: var(--app-detail-max-width);
+	max-width: var(--app-wizard-max-width);
 	margin: 0 auto;
 	padding: 24px 32px;
 	box-sizing: border-box;

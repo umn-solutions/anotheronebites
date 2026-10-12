@@ -25,7 +25,6 @@ function createDatesAndScopeSection(project) {
     readOnlyRow('Start Date', project.StartDate),
     readOnlyRow('Expected End Date', project.ExpectedEndDate),
     project.CloseDate ? readOnlyRow('Close Date', project.CloseDate) : null,
-    readOnlyRow('Scope', project.Scope),
     readOnlyRow('Product', project.Product),
     readOnlyRow('Umbrella Project', project.UmbrellaProgram),
   ].filter(Boolean)

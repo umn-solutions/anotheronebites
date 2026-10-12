@@ -24,11 +24,11 @@ import {
 	LIST_ALLOCATIONS,
 	GDPR_CLASSIFICATIONS,
 	ACCESS_LEVELS,
-	SCOPE_OPTIONS,
 } from "../../../utils/constants.js";
 
 import { getAppSiteApi } from "../../../utils/app-state.js";
-import { buildUmbrellaOptions } from "../../../utils/umbrella.js";
+import { createUmbrellaPicker } from "../../../utils/umbrella-picker.js";
+import { fetchAllDelegations, deriveUserScopes } from "../../../utils/access-control.js";
 
 import {
 	createLabeledField,
@@ -42,7 +42,6 @@ import {
 } from "../../../utils/form-helpers.js";
 
 import { generateStructuredId } from '../../../utils/id-generator.js';
-import { consumeRouteContext } from '../../../utils/route-context.js';
 import { loadDefinitions } from '../../../utils/definitions.js';
 import { loadScopes, getScopeOptions } from '../../../utils/scopes.js';
 
@@ -57,12 +56,20 @@ export default defineRoute(async (config) => {
 
 	const siteApi = getAppSiteApi();
 	const user = new CurrentUser();
-	const [defs, scopeItems, pmGroupMembers, umbrellaOptions] = await Promise.all([
+	const [defs, scopeItems, pmGroupMembers, delegations] = await Promise.all([
 		loadDefinitions(siteApi),
 		loadScopes(siteApi),
 		siteApi.getGroupUsers('ProjectManagers'),
-		buildUmbrellaOptions(siteApi, user),
+		fetchAllDelegations(siteApi),
 	]);
+	const umbrellaCtx = {
+		siteApi,
+		userEmail: user.get('email'),
+		siteAccessLevel: user.accessLevel,
+		delegations,
+		userScopes: deriveUserScopes(scopeItems, user.get('email')),
+		excludeUuid: undefined,
+	};
 	const pmMemberOptions = pmGroupMembers.map(m => ({
 		label: m.Title,
 		value: { email: m.Email, displayName: m.Title },
@@ -73,10 +80,6 @@ export default defineRoute(async (config) => {
 	const projectStatuses = defs.get('ProjectStatuses');
 	const businessLines = defs.get('BusinessLines');
 	const pmScopeOptions = getScopeOptions(scopeItems);
-
-	// -- Prefill from proposal --
-
-	const prefillData = consumeRouteContext();
 
 	// -- State --
 
@@ -91,10 +94,9 @@ export default defineRoute(async (config) => {
 
 	// Step 2 -- Leading-only fields
 	const pmOwnerField = new FormField({ value: "" });
-	const scopeField = new FormField({ value: "" });
 	const umbrellaField = new FormField({ value: "" });
-	const gdprField = new FormField({ value: "" });
-	const accessLevelField = new FormField({ value: "" });
+	const gdprField = new FormField({ value: { label: 'Contact Information (CPD)', value: 'Contact Information (CPD)' } });
+	const accessLevelField = new FormField({ value: { label: 'Internal', value: 'Internal' } });
 	accessLevelField.subscribe((val) => {
 		const selected = typeof val === 'object' && val?.value ? val.value : val;
 		if (selected === 'Confidential') {
@@ -108,11 +110,7 @@ export default defineRoute(async (config) => {
 
 	const techFieldsContainer = new Container([], { class: "app-tech-fields" });
 
-	const projectTypeField = new FormField({
-		value: prefillData?.projectType
-			? { label: prefillData.projectType, value: prefillData.projectType }
-			: "",
-	});
+	const projectTypeField = new FormField({ value: "" });
 	projectTypeField.subscribe((val) => {
 		if (val?.value === "Tech") {
 			techFieldsContainer.children = buildTechFields();
@@ -127,21 +125,11 @@ export default defineRoute(async (config) => {
 	const sponsorField = new FormField({ value: "" });
 	const stakeholdersField = new FormField({ value: [] });
 	const pmMembersField = new FormField({ value: [] });
-	const statusField = new FormField({ value: "" });
+	// Default to "In Progress" at construction so the step-3 Status ComboBox shows
+	// it selected on first render (a value set later, post-render, won't re-sync).
+	const statusField = new FormField({ value: { label: 'In Progress', value: 'In Progress' } });
 	const pmScopeField = new FormField({ value: "" });
 	const allocationField = new FormField({ value: 0 });
-
-	if (prefillData) {
-		projectNameField.value = prefillData.title || '';
-		contextField.value = prefillData.context || '';
-		if (prefillData.businessLine) {
-			businessLineField.value = { label: prefillData.businessLine, value: prefillData.businessLine };
-		}
-		if (prefillData.sponsor) sponsorField.value = userIdentityToOption(prefillData.sponsor);
-		if (prefillData.status) {
-			statusField.value = { label: prefillData.status, value: prefillData.status };
-		}
-	}
 
 	// -- Components --
 
@@ -170,15 +158,11 @@ export default defineRoute(async (config) => {
 		];
 	}
 
-	if (prefillData?.projectType === 'Tech') {
-		techFieldsContainer.children = buildTechFields();
-	}
-
 	// -------------------------------------------------------------------------
-	// Filled-field counter (for step 2 footer "N of 11 fields filled")
+	// Filled-field counter (for step 2 footer "N of 10 fields filled")
 	// -------------------------------------------------------------------------
 
-	const LEADING_FIELD_COUNT = 11;
+	const LEADING_FIELD_COUNT = 10;
 	const CONTRIBUTING_FIELD_COUNT = 6;
 
 	function countFilledFields() {
@@ -186,7 +170,7 @@ export default defineRoute(async (config) => {
 		const fields = isLeading
 			? [
 				projectNameField, pmOwnerField, contextField, objectivesField,
-				projectTypeField, scopeField, accessLevelField, gdprField, umbrellaField,
+				projectTypeField, accessLevelField, gdprField, umbrellaField,
 				startDateField, expectedEndDateField,
 			]
 			: [
@@ -207,46 +191,10 @@ export default defineRoute(async (config) => {
 	}
 
 	// -------------------------------------------------------------------------
-	// Stepper component (dot + label + connector)
+	// Step 2 header band (title + role recap)
 	// -------------------------------------------------------------------------
 
-	function buildStepper(currentIndex) {
-		const items = [];
-		STEP_NAMES.forEach((name, i) => {
-			const isDone = i < currentIndex;
-			const isCurrent = i === currentIndex;
-			// Dot styling
-			let dotClass = 'app-stepper__dot';
-			if (isDone) dotClass += ' app-stepper__dot--done';
-			else if (isCurrent) dotClass += ' app-stepper__dot--current';
-			else dotClass += ' app-stepper__dot--upcoming';
-
-			const markText = isDone ? '✓' : String(i + 1);
-			const dot = new Container(
-				[new Text(markText, { type: 'span' })],
-				{ class: dotClass }
-			);
-
-			let labelClass = 'app-stepper__label';
-			if (isCurrent) labelClass += ' app-stepper__label--current';
-			const label = new Text(name, { type: 'span', class: labelClass });
-
-			const stepItem = new Container([dot, label], { class: 'app-stepper__step' });
-			items.push(stepItem);
-
-			// Connector between steps (not after the last)
-			if (i < STEP_NAMES.length - 1) {
-				items.push(new Container([], { class: 'app-stepper__connector' }));
-			}
-		});
-		return new Container(items, { class: 'app-stepper' });
-	}
-
-	// -------------------------------------------------------------------------
-	// Step 2 header band (title + stepper + role recap)
-	// -------------------------------------------------------------------------
-
-	function buildStep2Header(currentStepIndex) {
+	function buildStep2Header() {
 		const roleText = userType.value || 'Leading';
 		const roleDisplay = new Container([
 			new Text('Role: ', { type: 'span', class: 'app-step2-role-label' }),
@@ -262,7 +210,6 @@ export default defineRoute(async (config) => {
 
 		return new Container([
 			new Text('New project', { type: 'h1', class: 'app-step2-title' }),
-			buildStepper(currentStepIndex),
 			roleDisplay,
 		], { class: 'app-step2-header' });
 	}
@@ -282,7 +229,7 @@ export default defineRoute(async (config) => {
 	// Subscribe all charter fields to update count
 	[
 		projectNameField, pmOwnerField, contextField, objectivesField,
-		projectTypeField, scopeField, accessLevelField, gdprField, umbrellaField,
+		projectTypeField, accessLevelField, gdprField, umbrellaField,
 		startDateField, expectedEndDateField,
 	].forEach(f => f.subscribe(updateFilledCount));
 
@@ -291,6 +238,15 @@ export default defineRoute(async (config) => {
 	// -------------------------------------------------------------------------
 
 	function buildPmSections() {
+		// PeoplePicker shows a selection only when the option exists in its dataset
+		// (empty by default -- it populates from AD search on type). When the field
+		// is already set (e.g. the current user auto-filled for Leading), seed the
+		// dataset so the selection is visible without an AD round-trip.
+		const pmOwnerPicker = new PeoplePicker(pmOwnerField, { placeholder: "Select project manager" });
+		if (pmOwnerField.value && typeof pmOwnerField.value === 'object' && pmOwnerField.value.label) {
+			pmOwnerPicker.dataset = [pmOwnerField.value];
+		}
+
 		return [
 			// Card 1: Project info
 			new Container([
@@ -304,7 +260,7 @@ export default defineRoute(async (config) => {
 				),
 				createLabeledField(
 					"Project manager",
-					new PeoplePicker(pmOwnerField, { placeholder: "Select project manager" }),
+					pmOwnerPicker,
 				),
 				createLabeledField(
 					"Context",
@@ -323,10 +279,6 @@ export default defineRoute(async (config) => {
 				], { class: 'app-step2-card__heading-row' }),
 				createLabeledField("Project type", projectTypeCombo),
 				createLabeledField(
-					"Scope",
-					new ComboBox(scopeField, SCOPE_OPTIONS, { allowFiltering: false, placeholder: "Select..." }),
-				),
-				createLabeledField(
 					"Access level",
 					new ComboBox(accessLevelField, ACCESS_LEVELS, {
 						allowFiltering: false,
@@ -343,10 +295,7 @@ export default defineRoute(async (config) => {
 				techFieldsContainer,
 				createLabeledField(
 					"Umbrella Project",
-					new ComboBox(umbrellaField, umbrellaOptions, {
-						allowFiltering: true,
-						placeholder: "Select umbrella project",
-					}),
+					createUmbrellaPicker(umbrellaField, umbrellaCtx),
 				),
 			], { class: 'app-step2-card app-form-section' }),
 
@@ -437,7 +386,9 @@ export default defineRoute(async (config) => {
 
 	// Mutable charter container (swapped on role change)
 	const charterBodyContainer = new Container([], { class: 'app-step2-body' });
-	const step2HeaderContainer = new Container([], { class: 'app-step2-header-wrapper' });
+	// Persistent "New project" header band: lives at page level (not inside a
+	// single step view) so it shows on every step after step 1. Hidden on step 1.
+	const step2HeaderContainer = new Container([], { class: 'app-step2-header-wrapper app-hidden' });
 
 	function updateStep2View() {
 		const sections = userType.value === "Leading"
@@ -453,27 +404,18 @@ export default defineRoute(async (config) => {
 				label: user.get('displayName'),
 				value: { email: user.get('email'), displayName: user.get('displayName') },
 			};
-			statusField.value = "In Progress";
+			statusField.value = { label: 'In Progress', value: 'In Progress' };
 		} else {
-			statusField.value = "Pipeline";
+			statusField.value = { label: 'In Progress', value: 'In Progress' };
 		}
 		updateStep2View();
 	}
-
-	// Before-you-continue panel (static, inside the charter body wrapper)
-	const beforeYouContinuePanel = new Container([
-		new Text('Before you continue', { type: 'span', class: 'app-byc-overline' }),
-		new Text(
-			'Only the project name is required now. Everything else can be completed from the Edit tab after creation.',
-			{ type: 'span', class: 'app-byc-body' }
-		),
-	], { class: 'app-byc-panel' });
 
 	// -------------------------------------------------------------------------
 	// Step 1: Role selection (choice cards)
 	// -------------------------------------------------------------------------
 
-	function buildRoleCard(roleValue, title, body, fieldCountText, isSelected) {
+	function buildRoleCard(roleValue, title, body, isSelected) {
 		const indicatorClass = isSelected
 			? 'app-role-card__indicator app-role-card__indicator--selected'
 			: 'app-role-card__indicator';
@@ -483,17 +425,12 @@ export default defineRoute(async (config) => {
 			{ class: indicatorClass }
 		);
 
-		const countClass = roleValue === 'Leading'
-			? 'app-role-card__count app-role-card__count--leading'
-			: 'app-role-card__count app-role-card__count--contributing';
-
 		return new Container([
 			new Container([
 				new Text(title, { type: 'span', class: 'app-role-card__title' }),
 				indicator,
 			], { class: 'app-role-card__top' }),
 			new Text(body, { type: 'p', class: 'app-role-card__body' }),
-			new Text(fieldCountText, { type: 'span', class: countClass }),
 		], {
 			class: isSelected
 				? 'app-role-card app-role-card--selected'
@@ -513,15 +450,13 @@ export default defineRoute(async (config) => {
 			buildRoleCard(
 				'Leading',
 				'Leading',
-				'My team owns delivery. I set the charter, dates, scope and access level.',
-				'11 fields',
+				'My team owns delivery. I set the charter, dates and access level.',
 				current === 'Leading'
 			),
 			buildRoleCard(
 				'Contributing',
 				'Contributing',
 				'Another team leads. I record my contribution and link to their project.',
-				'6 fields',
 				current === 'Contributing'
 			),
 		];
@@ -529,15 +464,8 @@ export default defineRoute(async (config) => {
 
 	const roleCardsContainer = new Container(buildRoleCards(), { class: 'app-role-cards' });
 
-	// Step overline for step 1
-	const step1Overline = new Text(
-		`Step 1 of ${TOTAL_STEPS} · Role`,
-		{ type: 'p', class: 'app-step1-overline' }
-	);
-
 	const step1 = new View([
 		new Container([
-			step1Overline,
 			new Text(
 				'Are you leading this project or contributing to it?',
 				{ type: 'h1', class: 'app-step1-question' }
@@ -555,9 +483,7 @@ export default defineRoute(async (config) => {
 	// -------------------------------------------------------------------------
 
 	const step2 = new View([
-		step2HeaderContainer,
 		charterBodyContainer,
-		beforeYouContinuePanel,
 	], { class: 'app-step2-view' });
 
 	// -------------------------------------------------------------------------
@@ -761,14 +687,23 @@ export default defineRoute(async (config) => {
 					step2Footer.instance?.removeClass('app-hidden');
 				}
 
-				// Update step 2+ header when on details step
+				// "New project" header band: hidden on step 1, shown on every later
+				// step (rebuilt each time so the role recap reflects the current role).
+				if (isStep1) {
+					step2HeaderContainer.instance?.addClass('app-hidden');
+				} else {
+					// Set children FIRST: the .children setter triggers _refresh(),
+					// which re-serializes from the component's internal class list
+					// (still carrying app-hidden). removeClass must run AFTER so it is
+					// the last DOM op and the band actually becomes visible.
+					step2HeaderContainer.children = [buildStep2Header()];
+					step2HeaderContainer.instance?.removeClass('app-hidden');
+				}
+
+				// Rebuild the step-2 charter body + filled-count only on the details step
 				if (idx === 1) {
-					step2HeaderContainer.children = [buildStep2Header(idx)];
 					updateStep2View();
 					updateFilledCount();
-				} else if (idx > 1) {
-					// Rebuild stepper for higher steps so done/current states are correct
-					step2HeaderContainer.children = [buildStep2Header(idx)];
 				}
 
 				// Previous is hidden on step 1 (handled via separate footer)
@@ -776,10 +711,6 @@ export default defineRoute(async (config) => {
 			},
 		},
 	);
-
-	if (prefillData) {
-		Toast.info('Fields pre-filled from validated proposal', { duration: 5000, autoClose: true });
-	}
 
 	// -------------------------------------------------------------------------
 	// Submit logic
@@ -795,8 +726,7 @@ export default defineRoute(async (config) => {
 			UUID: uuid,
 			Role: userType.value,
 			Status:
-				comboValue(statusField.value) ||
-				(userType.value === "Leading" ? "In Progress" : "Pipeline"),
+				comboValue(statusField.value) || "In Progress",
 			PMScope: comboValue(pmScopeField.value),
 			Context: contextField.value,
 			Objectives: objectivesField.value,
@@ -818,7 +748,6 @@ export default defineRoute(async (config) => {
 		if (userType.value === "Leading") {
 			data.ProjectManager = optionToUserIdentity(pmOwnerField.value) || '';
 			data.ProjectManagerEmail = optionToUserIdentity(pmOwnerField.value)?.email || '';
-			data.Scope = comboValue(scopeField.value);
 			const umbrellaLabel = umbrellaField.value?.label || '';
 			data.UmbrellaProgram = umbrellaLabel.replace(/^\[(?:Program|Project)\]\s*/, '');
 			data.GDPRClassification = comboValue(gdprField.value);
@@ -867,6 +796,7 @@ export default defineRoute(async (config) => {
 	// -------------------------------------------------------------------------
 
 	const wizardPage = new Container([
+		step2HeaderContainer,
 		wizardTarget,
 		wizard,
 		step1Footer,

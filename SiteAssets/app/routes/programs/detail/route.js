@@ -5,8 +5,8 @@ import {
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { LIST_PROGRAMS, LIST_PROJECTS } from '../../../utils/constants.js'
 import { createDeleteAction, splitUuids } from '../../../utils/delete-entity.js'
-import { fetchAllDelegations, filterProjectsByAccess, fetchUserScopes, isScopeOrCreatorVisible } from '../../../utils/access-control.js'
-import { buildUmbrellaOptions } from '../../../utils/umbrella.js'
+import { fetchAllDelegations, filterProjectsByAccess, deriveUserScopes, isScopeOrCreatorVisible } from '../../../utils/access-control.js'
+import { createUmbrellaPicker, seedUmbrellaCurrent } from '../../../utils/umbrella-picker.js'
 import { createLabeledField, createFormSection, createMultiPersonPicker, userIdentityToOption, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
 import { styleAfterRender } from '../../../utils/dynamic-style.js'
@@ -20,13 +20,13 @@ export default defineRoute(async (config) => {
     throw new SystemError('MissingUUID', 'No program UUID provided in query params')
   }
 
-  const [allPrograms, allProjects, delegations, scopeItems, userScopes] = await Promise.all([
+  const [allPrograms, allProjects, delegations, scopeItems] = await Promise.all([
     siteApi.list(LIST_PROGRAMS).getItems(),
     siteApi.list(LIST_PROJECTS).getItems(),
     fetchAllDelegations(siteApi),
     loadScopes(siteApi),
-    fetchUserScopes(siteApi, new CurrentUser().get('email')),
   ])
+  const userScopes = deriveUserScopes(scopeItems, new CurrentUser().get('email'))
   const pmScopeOptions = getScopeOptions(scopeItems)
 
   const user = new CurrentUser()
@@ -44,13 +44,27 @@ export default defineRoute(async (config) => {
 
   config.setRouteTitle(program.Title)
 
-  // Build umbrella options (scope-filtered; exclude current program to avoid self-reference)
-  const builtUmbrellaOptions = await buildUmbrellaOptions(siteApi, user, { excludeUuid: uuid })
-  // Prepend the "None" sentinel so the user can clear the parent
-  const umbrellaOptions = [
-    { label: 'None — top level', value: '' },
-    ...builtUmbrellaOptions,
-  ]
+  // Build the async umbrella picker context (no pre-fetch of all programs/projects needed)
+  const umbrellaCtx = {
+    siteApi,
+    userEmail: user.get('email'),
+    siteAccessLevel: user.accessLevel,
+    delegations,
+    userScopes,
+    excludeUuid: uuid,
+  }
+
+  // Resolve the current parent option for pre-population on the edit tab
+  const umbrellaCurrent = (() => {
+    if (!program.LinkedPrograms) return null
+    const parentProg = allPrograms.find(p => p.UUID === program.LinkedPrograms)
+    if (parentProg) return { label: '[Program] ' + parentProg.Title, value: parentProg.UUID }
+    const parentProj = allProjects.find(p => p.UUID === program.LinkedPrograms)
+    if (parentProj) return { label: '[Project] ' + parentProj.Title, value: parentProj.UUID }
+    // Stored UUID not visible — fall back to the plain text name if available
+    if (program.UmbrellaProgram) return { label: program.UmbrellaProgram, value: program.LinkedPrograms }
+    return null
+  })()
 
   // ----------------------------------------------------------------
   // Derived data for Overview tab
@@ -362,8 +376,7 @@ export default defineRoute(async (config) => {
   const contextEditField = new FormField({ value: program.Context || '' })
   const sponsorEditField = new FormField({ value: userIdentityToOption(program.ProgramSponsor) || '' })
   const stakeholdersEditField = new FormField({ value: program.Stakeholders || [] })
-  const matchingUmbrella = umbrellaOptions.find(o => o.value === program.LinkedPrograms) || null
-  const umbrellaEditField = new FormField({ value: matchingUmbrella || '' })
+  const umbrellaEditField = new FormField({ value: umbrellaCurrent || '' })
   const pmScopeEditField = new FormField({ value: program.PMScope || '' })
 
   const saveEditBtn = new Button('Save Changes', {
@@ -452,11 +465,14 @@ export default defineRoute(async (config) => {
     deleteTriggerBtn = triggerButton
   }
 
+  const umbrellaPickerEdit = createUmbrellaPicker(umbrellaEditField, umbrellaCtx)
+  seedUmbrellaCurrent(umbrellaPickerEdit, umbrellaEditField, umbrellaCurrent)
+
   const editTab = new View([
     createFormSection('Program Details', [
       createLabeledField('Program Name', new TextInput(programNameField), true),
       createLabeledField('Context', new TextArea(contextEditField)),
-      createLabeledField('Umbrella Project', new ComboBox(umbrellaEditField, umbrellaOptions, { allowFiltering: true, placeholder: 'Select umbrella project' })),
+      createLabeledField('Umbrella Project', umbrellaPickerEdit),
       createLabeledField('Program Sponsor', new PeoplePicker(sponsorEditField, { placeholder: 'Select sponsor' })),
       createMultiPersonPicker('Stakeholders', stakeholdersEditField),
       createLabeledField('PM Scope', new ComboBox(pmScopeEditField, pmScopeOptions, { allowFiltering: false, placeholder: 'Select PM Scope' })),
@@ -509,15 +525,12 @@ export default defineRoute(async (config) => {
 
   const programTag = new Text('Program', { type: 'span', class: 'app-prog-type-tag' })
 
-  const metaStr = `${parentProgram ? 'Sub-program' : 'Top level'} · ${childPrograms.length} program${childPrograms.length !== 1 ? 's' : ''} · ${childProjects.length} project${childProjects.length !== 1 ? 's' : ''}`
-
   const recordHeader = new Container([
     new Container([
       new Container([
         new Text(program.Title, { type: 'h1', class: 'app-record-header__title' }),
         programTag,
       ], { class: 'app-record-header__title-row' }),
-      new Text(metaStr, { type: 'span', class: 'app-record-header__meta' }),
       tabGroup,
     ], { class: 'app-record-header' }),
   ], { class: '' })

@@ -11,8 +11,8 @@ import { createEditTab } from '../utils/edit-tab.js'
 import { createAccessTab } from '../utils/access-tab.js'
 import { createCapacityTab } from '../utils/capacity-tab.js'
 import { statusClass } from '../../../utils/project-card.js'
-import { resolveEffectiveRole, filterProjectsByAccess, fetchAllDelegations, fetchUserScopes, canPerformAction } from '../../../utils/access-control.js'
-import { buildUmbrellaOptions } from '../../../utils/umbrella.js'
+import { resolveEffectiveRole, filterProjectsByAccess, fetchAllDelegations, deriveUserScopes, canPerformAction } from '../../../utils/access-control.js'
+import { createUmbrellaPicker, seedUmbrellaCurrent } from '../../../utils/umbrella-picker.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
 
 export default defineRoute(async (config) => {
@@ -35,7 +35,7 @@ export default defineRoute(async (config) => {
     throw new SystemError('MissingUUID', 'No project UUID provided in query params')
   }
 
-  let [projects, updates, programs, defs, scopeItems, delegations, allocations, pmGroupMembers, userScopes, allProjectsList] = await Promise.all([
+  let [projects, updates, programs, defs, scopeItems, delegations, allocations, pmGroupMembers, allProjectsList] = await Promise.all([
     siteApi.list(LIST_PROJECTS).getItemByUUID(uuid),
     siteApi.list(LIST_PROJECT_UPDATES).getItems({ ProjectUUID: uuid }),
     siteApi.list(LIST_PROGRAMS).getItems(),
@@ -44,9 +44,9 @@ export default defineRoute(async (config) => {
     fetchAllDelegations(siteApi),
     siteApi.list(LIST_ALLOCATIONS).getItems({ ProjectUUID: uuid }),
     siteApi.getGroupUsers('ProjectManagers'),
-    fetchUserScopes(siteApi, new CurrentUser().get('email')),
     siteApi.list(LIST_PROJECTS).getItems(),
   ])
+  const userScopes = deriveUserScopes(scopeItems, new CurrentUser().get('email'))
 
   const pmMemberOptions = pmGroupMembers.map(m => ({
     label: m.Title,
@@ -69,7 +69,28 @@ export default defineRoute(async (config) => {
   const canEdit = canPerformAction(effectiveRole, 'edit')
 
   const accessibleProjects = filterProjectsByAccess(allProjectsList, user.get('email'), user.accessLevel, delegations, userScopes)
-  const umbrellaOptions = await buildUmbrellaOptions(siteApi, user, { excludeUuid: uuid })
+
+  // Build the async umbrella picker context (no pre-fetch of all programs/projects needed)
+  const umbrellaCtx = {
+    siteApi,
+    userEmail: user.get('email'),
+    siteAccessLevel: user.accessLevel,
+    delegations,
+    userScopes,
+    excludeUuid: uuid,
+  }
+
+  // Resolve the current parent option for pre-population on the edit tab
+  const umbrellaCurrent = (() => {
+    if (!project.LinkedPrograms) return null
+    const parentProg = programs.find(p => p.UUID === project.LinkedPrograms)
+    if (parentProg) return { label: '[Program] ' + parentProg.Title, value: parentProg.UUID }
+    const parentProj = allProjectsList.find(p => p.UUID === project.LinkedPrograms)
+    if (parentProj) return { label: '[Project] ' + parentProj.Title, value: parentProj.UUID }
+    // Stored UUID not visible — fall back to the plain text name if available
+    if (project.UmbrellaProgram) return { label: project.UmbrellaProgram, value: project.LinkedPrograms }
+    return null
+  })()
 
   config.setRouteTitle(project.Title)
 
@@ -158,9 +179,10 @@ export default defineRoute(async (config) => {
   }
 
   const editTab = createEditTab({
-    project, umbrellaOptions, projectTypes, techProjects, techPhases, projectStatuses,
+    project, umbrellaCtx, umbrellaCurrent, projectTypes, techProjects, techPhases, projectStatuses,
     businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions,
-    allocations, pmScopeOptions, deleteButton: deleteTriggerBtn
+    allocations, pmScopeOptions, deleteButton: deleteTriggerBtn,
+    createUmbrellaPicker, seedUmbrellaCurrent
   })
 
   // ------------------------------------------------------------------
@@ -395,7 +417,6 @@ export default defineRoute(async (config) => {
         ? new Text('Validated', { type: 'span', class: 'app-status-badge app-validated-badge' })
         : null
     ].filter(Boolean), { class: 'app-record-header__title-row' }),
-    new Text(project.UUID || '', { type: 'span', class: 'app-record-header__meta' })
   ], { class: 'app-record-header' })
 
   return [recordHeader, detailBody, newUpdateDialog, ...(closeDialog ? [closeDialog] : []), ...(deleteDialog ? [deleteDialog] : [])]

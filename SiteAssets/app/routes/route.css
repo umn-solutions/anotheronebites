@@ -74,7 +74,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 112px;
+  top: calc(50% - 150px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -123,10 +123,10 @@
 .app-home-field {
   position: absolute;
   left: 50%;
-  top: 232px;
+  top: 50%;
   width: 660px;
   height: 56px;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -502,28 +502,51 @@
   -webkit-box-orient: vertical;
 }
 
-/* Footer row: single left-aligned overline "type · GDPR-acronym" */
+/* Footer row: flex row holding entry-type pill + project-type pill */
 .app-result-card__footer {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
+}
+
+/* Base pill shared by all footer pills */
+.app-result-card__pill {
+  display: inline-block;
+  padding: 2px var(--space-m);
+  border-radius: var(--radius-circular);
   font-size: var(--font-size-100);
+  line-height: var(--line-height-100);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--app-fg-muted);
-}
-
-.app-result-card__footer-item {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
 }
 
-.app-result-card__footer-sep {
-  flex-shrink: 0;
+/* Entry-type pill modifiers (match card left-border accent colors) */
+.app-result-card__pill--project {
+  background: var(--app-primary-light);
+  color: var(--app-primary-active);
+}
+
+.app-result-card__pill--program {
+  background: var(--app-status-proposal-bg);
+  color: var(--app-status-proposal-fg);
+}
+
+.app-result-card__pill--proposal {
+  background: var(--app-bg-light);
+  color: var(--app-text-muted);
+}
+
+/* Project-type pill (purple, distinct from every entry color) */
+.app-result-card__pill--type {
+  background: var(--app-status-pipeline-bg);
+  color: var(--app-status-pipeline-fg);
 }
 
 /* ---------- Empty state (search query with no matches) ---------- */
@@ -600,8 +623,8 @@
 }
 
 @media (max-width: 600px) {
-  .app-home-hero { top: 72px; }
-  .app-home-field { top: 180px; }
+  .app-home-hero { top: calc(50% - 140px); }
+  .app-home-field { top: 50%; }
   .app-home-bar {
     padding: 0 12px 0 16px;
     flex-wrap: wrap;

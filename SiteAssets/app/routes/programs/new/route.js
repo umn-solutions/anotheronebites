@@ -3,7 +3,8 @@ import { LIST_PROGRAMS } from '../../../utils/constants.js'
 import { createLabeledField, createMultiPersonPicker, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { generateStructuredId } from '../../../utils/id-generator.js'
 import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
-import { buildUmbrellaOptions } from '../../../utils/umbrella.js'
+import { createUmbrellaPicker } from '../../../utils/umbrella-picker.js'
+import { fetchAllDelegations, deriveUserScopes } from '../../../utils/access-control.js'
 
 export default defineRoute(async (config) => {
   config.setRouteTitle('Create Program')
@@ -11,16 +12,18 @@ export default defineRoute(async (config) => {
   const siteApi = new SiteApi()
   const user = new CurrentUser()
 
-  const [scopeItems, builtOptions] = await Promise.all([
+  const [scopeItems, delegations] = await Promise.all([
     loadScopes(siteApi),
-    buildUmbrellaOptions(siteApi, user),
+    fetchAllDelegations(siteApi),
   ])
-
-  // "None — top level" as the sentinel to clear the parent, then programs + projects
-  const umbrellaOptions = [
-    { label: 'None — top level', value: '' },
-    ...builtOptions,
-  ]
+  const umbrellaCtx = {
+    siteApi,
+    userEmail: user.get('email'),
+    siteAccessLevel: user.accessLevel,
+    delegations,
+    userScopes: deriveUserScopes(scopeItems, user.get('email')),
+    excludeUuid: undefined,
+  }
   const pmScopeOptions = getScopeOptions(scopeItems)
 
   // Form fields
@@ -101,7 +104,7 @@ export default defineRoute(async (config) => {
 
   // Short selects: 2-up grid (parent program, sponsor, PM scope, stakeholders)
   const shortSelects = new Container([
-    createLabeledField('Umbrella Project', new ComboBox(umbrellaField, umbrellaOptions, { allowFiltering: true })),
+    createLabeledField('Umbrella Project', createUmbrellaPicker(umbrellaField, umbrellaCtx)),
     createLabeledField('Program sponsor', new PeoplePicker(sponsorField, { placeholder: 'Select sponsor' })),
     createLabeledField('PM scope', new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false, placeholder: 'Select PM scope' })),
     createMultiPersonPicker('Stakeholders', stakeholdersField),
