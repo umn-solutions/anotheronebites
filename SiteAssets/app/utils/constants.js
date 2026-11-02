@@ -45,6 +45,9 @@ export const GROUP_HIERARCHY = [
   { groupTitle: 'Admins', groupLabel: 'ADMIN' },
 ]
 
+// P4P scope: the canonical allocation pool. Queried instead of a SharePoint group.
+export const P4P_SCOPE_TITLE = 'P4P'
+
 // ProjectAccess list name
 export const LIST_PROJECT_ACCESS = 'ProjectAccess'
 export const LIST_ALLOCATIONS = 'Allocations'
@@ -60,7 +63,27 @@ export const PROJECT_ACTIONS = {
   view: 'view',
   edit: 'edit',
   addUpdate: 'addUpdate',
-  close: 'close',
   delegate: 'delegate',
   changeAccessLevel: 'changeAccessLevel',
 }
+
+// Project lifecycle -- terminal status constants
+export const PROJECT_STATUS_COMPLETED = 'Completed'
+export const PROJECT_STATUS_STOPPED = 'Stopped'
+
+/**
+ * Returns true when the project is in the Completed (closed) state.
+ * Use this single check everywhere -- never scatter Status string comparisons.
+ * @param {{ Status?: string }} project
+ * @returns {boolean}
+ */
+export function isProjectClosed(project) {
+  return project.Status === PROJECT_STATUS_COMPLETED
+}
+
+/**
+ * Default statuses shown in the Capacity Tracker gantt.
+ * Pipeline, On Hold, and Stopped are off by default.
+ * Completed stays on so past months remain correct after closure.
+ */
+export const CAPACITY_DEFAULT_STATUSES = ['In Progress', 'Delayed', 'Completed']

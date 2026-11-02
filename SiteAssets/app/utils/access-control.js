@@ -1,11 +1,13 @@
-import { LIST_PROJECT_ACCESS } from './constants.js'
+import { LIST_PROJECT_ACCESS, P4P_SCOPE_TITLE } from './constants.js'
 import { loadScopes } from './scopes.js'
 
-// Permission matrix: which effective roles can perform which actions
+// Permission matrix: which effective roles can perform which actions.
+// Closing/reopening a project is NOT in this map -- it uses canCloseProject()
+// because the allowed identities (ADMIN, PM, creator) do not map 1:1 to roles.
 const PERMISSION_MAP = {
-  owner:        { view: true, edit: true, addUpdate: true, close: true, delegate: true, changeAccessLevel: true },
-  contributing: { view: true, edit: true, addUpdate: true, close: false, delegate: false, changeAccessLevel: false },
-  reader:       { view: true, edit: false, addUpdate: false, close: false, delegate: false, changeAccessLevel: false },
+  owner:        { view: true, edit: true, addUpdate: true, delegate: true, changeAccessLevel: true },
+  contributing: { view: true, edit: true, addUpdate: true, delegate: false, changeAccessLevel: false },
+  reader:       { view: true, edit: false, addUpdate: false, delegate: false, changeAccessLevel: false },
 }
 
 /**
@@ -18,9 +20,11 @@ const PERMISSION_MAP = {
  * 3. Delegation on this project: Contributing -> 'contributing'; Read -> 'reader'
  *    (checked BEFORE AccessLevel blocks so delegation overrides Confidential/Internal)
  * 4. Confidential -> null
- * 5. Internal -> null
- * 6. NoRestriction: has PMScope -> scope member ? 'reader' : null; no PMScope -> 'reader'
- * 7. else -> null
+ * 5. P4P member -> 'reader' for any remaining project regardless of AccessLevel or PMScope
+ *    (P4P is the explicit exception: sees everything except Confidential)
+ * 6. Internal -> null
+ * 7. NoRestriction: has PMScope -> scope member ? 'reader' : null; no PMScope -> 'reader'
+ * 8. else -> null
  *
  * @param {object} project - Project record with AccessLevel, PMMembersEmail, SubmittedByEmail
  * @param {string} userEmail - Current user's email
@@ -55,10 +59,14 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
   // 4. Confidential blocks all remaining non-delegates
   if (project.AccessLevel === 'Confidential') return null
 
-  // 5. Internal blocks all remaining non-delegates
+  // 5. P4P member -> reader (exception: P4P sees every non-Confidential project
+  //    regardless of AccessLevel or PMScope -- must come before the Internal block)
+  if (userScopes.has(P4P_SCOPE_TITLE)) return 'reader'
+
+  // 6. Internal blocks all remaining non-delegates and non-P4P members
   if (project.AccessLevel === 'Internal') return null
 
-  // 6. NoRestriction: scope gates visibility when the project has a PMScope tag
+  // 7. NoRestriction: scope gates visibility when the project has a PMScope tag
   if (project.AccessLevel === 'NoRestriction') {
     const projectHasScope = !!(project.PMScope && String(project.PMScope).trim())
     if (projectHasScope) {
@@ -68,6 +76,45 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
   }
 
   return null
+}
+
+/**
+ * Determine if the current user may close or reopen a project.
+ *
+ * Allowed identities: site ADMIN, the designated Project Manager
+ * (ProjectManagerEmail), or the project creator (SubmittedByEmail).
+ * PM Members who happen to have the 'owner' effective role are NOT
+ * allowed to close -- that right is reserved to the three identities above.
+ *
+ * Reopening is ADMIN-only and must be gated separately by callers
+ * (check `siteAccessLevel === 'ADMIN'`).
+ *
+ * @param {object} project - Project record
+ * @param {string} userEmail - Current user's email
+ * @param {'ADMIN'|'USER'|null} siteAccessLevel - User's site group label
+ * @returns {boolean}
+ */
+export function canCloseProject(project, userEmail, siteAccessLevel) {
+  if (siteAccessLevel === 'ADMIN') return true
+  const email = (userEmail || '').toLowerCase()
+  const projectManagerEmail = (project.ProjectManagerEmail || '').trim().toLowerCase()
+  const submittedByEmail = (project.SubmittedByEmail || '').trim().toLowerCase()
+  return (!!projectManagerEmail && projectManagerEmail === email) ||
+    (!!submittedByEmail && submittedByEmail === email)
+}
+
+/**
+ * Determine if the current user may delete a project.
+ * Delete uses the same identity check as close: ADMIN, designated PM, or creator.
+ * PM Members with 'owner' role are excluded -- identical restriction to canCloseProject.
+ *
+ * @param {object} project - Project record
+ * @param {string} userEmail - Current user's email
+ * @param {'ADMIN'|'USER'|null} siteAccessLevel - User's site group label
+ * @returns {boolean}
+ */
+export function canDeleteProject(project, userEmail, siteAccessLevel) {
+  return canCloseProject(project, userEmail, siteAccessLevel)
 }
 
 /**

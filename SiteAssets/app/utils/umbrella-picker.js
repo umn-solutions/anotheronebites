@@ -67,15 +67,18 @@ class UmbrellaComboBox extends ComboBox {
       placeholder = 'Search programs & projects…',
       debounceMs = 300,
       minimumCharacters = 1,
+      isDisabled = false,
     } = opts
 
     // Empty initial dataset — allowCreate is false so the user can only pick
-    // existing items found by search.
-    super(formField, [], { allowFiltering: true, placeholder })
+    // existing items found by search. Pass isDisabled so ComboBox sets
+    // _explicitlyDisabled = true and the FormControl base sets _isDisabled = true.
+    super(formField, [], { allowFiltering: true, placeholder, isDisabled })
 
-    // PeoplePicker overrides this same flag so the control stays enabled on an
-    // empty dataset. We do the same — the user needs to type to populate it.
-    this._isDisabled = false
+    // When not explicitly disabled, PeoplePicker (and this class) override the
+    // empty-dataset auto-disable so the control stays enabled — the user needs
+    // to type to populate it. When explicitly disabled, leave _isDisabled as-is.
+    if (!isDisabled) this._isDisabled = false
 
     this._minimumCharacters = minimumCharacters
     this._ctx = { siteApi, userEmail, siteAccessLevel, delegations, userScopes, excludeUuid }
@@ -180,8 +183,8 @@ class UmbrellaComboBox extends ComboBox {
  * @param {{ placeholder?: string }} [opts]
  * @returns {UmbrellaComboBox}
  */
-export function createUmbrellaPicker(formField, ctx, { placeholder = 'Search programs & projects…' } = {}) {
-  return new UmbrellaComboBox(formField, { ...ctx, placeholder })
+export function createUmbrellaPicker(formField, ctx, { placeholder = 'Search programs & projects…', isDisabled = false } = {}) {
+  return new UmbrellaComboBox(formField, { ...ctx, placeholder, isDisabled })
 }
 
 /**
@@ -196,7 +199,13 @@ export function createUmbrellaPicker(formField, ctx, { placeholder = 'Search pro
  * @param {{ label: string, value: string }|null} option
  */
 export function seedUmbrellaCurrent(picker, formField, option) {
-  if (!option) return
+  if (!option) {
+    // No stored parent: clear the display. clearSelection unchecks all items,
+    // resets the input text, and sets the FormField value to null without calling
+    // _disableOnEmptyDataset, so the picker stays enabled and ready for input.
+    picker.clearSelection()
+    return
+  }
   // Set the FormField first so the dataset setter finds the value and marks
   // the option as checked.
   formField.value = option

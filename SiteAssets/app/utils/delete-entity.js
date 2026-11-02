@@ -78,7 +78,8 @@ export function createDeleteAction({
       loading.success(successText)
       dialog.close()
       Router.navigateTo(navigateTo)
-    } catch {
+    } catch (err) {
+      console.error('[DeleteAction] confirm failed', err)
       loading.error(errorText)
     } finally {
       if (confirmBtn.isAlive) confirmBtn.isLoading = false

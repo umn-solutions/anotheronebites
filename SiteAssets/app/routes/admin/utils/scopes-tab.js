@@ -2,6 +2,7 @@ import {
   View, Container, Text, TextInput, Button, FormField, Toast
 } from '../../../libs/nofbiz/nofbiz.base.js'
 import { createGroupMemberPicker } from '../../../utils/form-helpers.js'
+import { P4P_SCOPE_TITLE } from '../../../utils/constants.js'
 
 /**
  * Build the Scopes admin tab with full CRUD against the Scopes list.
@@ -57,6 +58,7 @@ export function createScopesTab({ listApi, scopeItems, memberOptions = [] }) {
   }
 
   function buildScopeCard(row, _unused) {
+    const isP4P = row.Title === P4P_SCOPE_TITLE
     const initialMembers = Array.isArray(row.Members) ? row.Members : []
     const membersField = new FormField({ value: initialMembers })
 
@@ -76,6 +78,18 @@ export function createScopesTab({ listApi, scopeItems, memberOptions = [] }) {
       }
     })
 
+    const heading = new Text(row.Title, { type: 'h4', class: 'app-scope-name' })
+    const picker = createGroupMemberPicker('Members', membersField, memberOptions)
+
+    // P4P is the default staffing and allocation pool. It cannot be disabled.
+    if (isP4P) {
+      const hint = new Text(
+        'This is the default scope used for staffing and capacity allocation. It cannot be disabled.',
+        { type: 'p', class: 'app-field-hint' }
+      )
+      return new Container([heading, hint, picker, saveBtn], { class: 'app-scope-card' })
+    }
+
     const disableBtn = new Button('Disable', { variant: 'ghost', class: 'app-admin-disable-btn' })
     disableBtn.setEventHandler('click', async () => {
       disableBtn.isLoading = true
@@ -92,11 +106,10 @@ export function createScopesTab({ listApi, scopeItems, memberOptions = [] }) {
       }
     })
 
-    const heading = new Text(row.Title, { type: 'h4', class: 'app-scope-name' })
-    const picker = createGroupMemberPicker('Members', membersField, memberOptions)
-    const cardActions = new Container([saveBtn, disableBtn], { class: 'app-scope-card-actions' })
-
-    return new Container([heading, picker, cardActions], { class: 'app-scope-card' })
+    return new Container(
+      [heading, picker, new Container([saveBtn, disableBtn], { class: 'app-scope-card-actions' })],
+      { class: 'app-scope-card' }
+    )
   }
 
   function buildInactiveRow(row) {

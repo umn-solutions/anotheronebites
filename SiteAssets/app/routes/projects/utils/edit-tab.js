@@ -1,17 +1,27 @@
 import {
   View, Container, Text, TextInput, DateInput, ComboBox, PeoplePicker, FormField, Button, Toast
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS, LIST_PROJECTS } from '../../../utils/constants.js'
+import { GDPR_CLASSIFICATIONS, TARGET_SCOPES, LIST_ALLOCATIONS, LIST_PROJECTS, PROJECT_STATUS_COMPLETED } from '../../../utils/constants.js'
 import { canPerformAction } from '../../../utils/access-control.js'
 import {
   createLabeledField, createFormSection, createFormRow,
   createMultiPersonPicker, createGroupMemberPicker, createMultiTargetValuePicker,
-  comboValue, optionToUserIdentity
+  comboValue, optionToUserIdentity, buildSubCategoryChildren, bindSubCategoryToCategory,
+  resetComboToStored, resetPeoplePickerToStored
 } from '../../../utils/form-helpers.js'
+import { getSubCategoryOptions } from '../../../utils/definitions.js'
 
-export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmbrellaPicker, seedUmbrellaCurrent, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null }) {
+export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmbrellaPicker, seedUmbrellaCurrent, resolveUmbrellaOption = null, projectTypes, techProjects, techPhases, projectStatuses, businessLines, targetTypes, targetValueTypes, effectiveRole, siteApi, pmMemberOptions, allocations, pmScopeOptions = [], deleteButton = null, subCategoryMap = null, isClosed = false, onProjectSaved = null }) {
 
   const canEdit = canPerformAction(effectiveRole, 'edit')
+
+  // Exclude Completed from status options while the project is open so users cannot
+  // manually set it -- Completed is written only by the Close action in updates-tab.js.
+  // When the project is already closed the disabled ComboBox must include Completed in
+  // its dataset or _syncDatasetFromField finds no matching option and renders blank.
+  const filteredStatuses = isClosed
+    ? projectStatuses
+    : projectStatuses.filter(s => s !== PROJECT_STATUS_COMPLETED)
 
   // -------------------------------------------------------------------
   // Charter fields
@@ -29,29 +39,60 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
 
   const techProjectField = new FormField({ value: project.TechProject || '' })
   const techPhaseField = new FormField({ value: project.TechPhase || '' })
-  const techProjectCombo = new ComboBox(techProjectField, techProjects, { allowFiltering: true })
-  const techPhaseCombo = new ComboBox(techPhaseField, techPhases, { allowFiltering: false })
+
+  // Factory creates fresh ComboBox instances each time tech fields mount.
+  // Avoids calling .dataset on an unmounted element (renders into the default
+  // container selector). Field values must be set to the desired state BEFORE the
+  // subscriber fires (e.g. during discard) so the new instances pre-check correctly.
+  function buildTechFields() {
+    return [
+      createLabeledField('Tech Project', new ComboBox(techProjectField, techProjects, { allowFiltering: true, isDisabled: isClosed })),
+      createLabeledField('Tech Phase', new ComboBox(techPhaseField, techPhases, { allowFiltering: false, isDisabled: isClosed })),
+    ]
+  }
+
+  // Construct projectTypeCombo BEFORE registering any subscribers on projectTypeField.
+  // Secondary defence: constructor normalisation fires with no subscribers attached.
+  // Primary defence: bindSubCategoryToCategory's initialParent guard covers
+  // ComboBox.render() re-fires (_onSelectHandlerProxy on first render).
+  const projectTypeCombo = new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true, isDisabled: isClosed })
 
   const techFieldsContainer = new Container(
-    project.ProjectType === 'Tech'
-      ? [createLabeledField('Tech Project', techProjectCombo), createLabeledField('Tech Phase', techPhaseCombo)]
-      : []
+    project.ProjectType === 'Tech' ? buildTechFields() : []
   )
 
+  // comboValue handles both option objects and raw strings; discard assigns a plain
+  // string temporarily before the dataset setter normalises it.
   projectTypeField.subscribe((val) => {
-    techFieldsContainer.children = val?.value === 'Tech'
-      ? [createLabeledField('Tech Project', techProjectCombo), createLabeledField('Tech Phase', techPhaseCombo)]
-      : []
+    techFieldsContainer.children = comboValue(val) === 'Tech' ? buildTechFields() : []
   })
 
-  const pmPicker = new PeoplePicker(projectManagerField, { placeholder: 'Select Project Manager' })
-  const pmResolve = project.ProjectManager?.email
-    ? pmPicker.resolveUser(project.ProjectManager.email)
-    : null
+  // Sub Category -- options depend on the selected category
+  const subCategoryField = new FormField({ value: project.SubCategory || '' })
+  const initialSubCatOpts = getSubCategoryOptions(subCategoryMap, project.ProjectType || '')
+  const subCategoryContainer = new Container(
+    buildSubCategoryChildren(subCategoryField, initialSubCatOpts, { disabled: isClosed }),
+    { class: 'app-subcategory-field' },
+  )
+
+  // Keep sub category in sync with category. Uses initialParent guard so render-time
+  // re-fires (ComboBox.render calls _onSelectHandlerProxy when option is checked) do
+  // not wipe a pre-loaded sub category value on first render.
+  bindSubCategoryToCategory({
+    categoryField: projectTypeField,
+    subCategoryField,
+    container: subCategoryContainer,
+    subCategoryMap,
+    initialParent: project.ProjectType || '',
+    disabled: isClosed,
+  })
+
+  const pmPicker = new PeoplePicker(projectManagerField, { placeholder: 'Select Project Manager', isDisabled: isClosed })
+  resetPeoplePickerToStored(pmPicker, projectManagerField, project.ProjectManager)
 
   // Read-only expected end date with reason line (if umbrella program set, end date is derived)
   const hasUmbrella = !!(project.LinkedPrograms || project.UmbrellaProgram)
-  const endDateInput = new DateInput(endDateField, { isDisabled: hasUmbrella, format: 'yyyy-mm-dd' })
+  const endDateInput = new DateInput(endDateField, { isDisabled: hasUmbrella || isClosed, format: 'yyyy-mm-dd' })
 
   const endDateField_ = hasUmbrella
     ? new Container([
@@ -63,25 +104,32 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
       ], { class: 'app-readonly-date-field' })
     : endDateInput
 
-  const umbrellaPicker = createUmbrellaPicker(umbrellaField, umbrellaCtx)
+  // Pass isDisabled at construction time so _isDisabled is set before render.
+  // FormControl.set isDisabled guards on isAlive (DOM presence), so it is a no-op
+  // before first render -- the prop must be wired through the constructor instead.
+  const umbrellaPicker = createUmbrellaPicker(umbrellaField, umbrellaCtx, { isDisabled: isClosed })
   seedUmbrellaCurrent(umbrellaPicker, umbrellaField, umbrellaCurrent)
+
+  // Extract combo instances so discard can call resetComboToStored on each one.
+  const gdprCombo = new ComboBox(gdprField, GDPR_CLASSIFICATIONS, { allowFiltering: false, isDisabled: isClosed })
 
   const charterSection = createFormSection('Charter', [
     new Container([
       new Text('* required', { type: 'span', class: 'app-section-meta' })
     ], { class: 'app-section-header-meta' }),
     createFormRow([
-      createLabeledField('Project Name', new TextInput(projectNameField), true),
+      createLabeledField('Project Name', new TextInput(projectNameField, { isDisabled: isClosed }), true),
       createLabeledField('Project Manager', pmPicker)
     ]),
-    createLabeledField('Context', new TextInput(contextField)),
-    createLabeledField('Objectives', new TextInput(objectivesField)),
+    createLabeledField('Context', new TextInput(contextField, { isDisabled: isClosed })),
+    createLabeledField('Objectives', new TextInput(objectivesField, { isDisabled: isClosed })),
     createFormRow([
-      createLabeledField('Project Type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
-      createLabeledField('GDPR Classification', new ComboBox(gdprField, GDPR_CLASSIFICATIONS, { allowFiltering: false }))
+      createLabeledField('Category', projectTypeCombo),
+      createLabeledField('GDPR Classification', gdprCombo)
     ]),
+    subCategoryContainer,
     createFormRow([
-      createLabeledField('Start Date', new DateInput(startDateField, { format: 'yyyy-mm-dd' })),
+      createLabeledField('Start Date', new DateInput(startDateField, { format: 'yyyy-mm-dd', isDisabled: isClosed })),
       createLabeledField('Expected End Date', endDateField_)
     ]),
     createLabeledField('Umbrella Project', umbrellaPicker),
@@ -95,30 +143,32 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
   const businessLineField = new FormField({ value: project.BusinessLine || '' })
   const productField = new FormField({ value: project.Product || '' })
   const sponsorField = new FormField({ value: '' })
-  const sponsorPicker = new PeoplePicker(sponsorField, { placeholder: 'Select sponsor' })
-  const sponsorResolve = project.Sponsor?.email
-    ? sponsorPicker.resolveUser(project.Sponsor.email)
-    : null
+  const sponsorPicker = new PeoplePicker(sponsorField, { placeholder: 'Select sponsor', isDisabled: isClosed })
+  resetPeoplePickerToStored(sponsorPicker, sponsorField, project.Sponsor)
   const stakeholdersField = new FormField({ value: project.Stakeholders || [] })
   const pmMembersField = new FormField({ value: project.PMMembers || [] })
   const statusField = new FormField({ value: project.Status || '' })
   const pmScopeField = new FormField({ value: project.PMScope || '' })
 
+  const businessLineCombo = new ComboBox(businessLineField, businessLines, { allowFiltering: true, allowCreate: true, isDisabled: isClosed })
+  const statusCombo = new ComboBox(statusField, filteredStatuses, { allowFiltering: false, isDisabled: isClosed })
+  const pmScopeCombo = new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false, isDisabled: isClosed })
+
   const governanceSection = createFormSection('Governance', [
     createFormRow([
-      createLabeledField('Business Line', new ComboBox(businessLineField, businessLines, { allowFiltering: true, allowCreate: true })),
-      createLabeledField('Product', new TextInput(productField))
+      createLabeledField('Business Line', businessLineCombo),
+      createLabeledField('Product', new TextInput(productField, { isDisabled: isClosed }))
     ]),
     createFormRow([
       createLabeledField('Sponsor', sponsorPicker),
-      createMultiPersonPicker('Stakeholders', stakeholdersField)
+      createMultiPersonPicker('Stakeholders', stakeholdersField, false, { disabled: isClosed })
     ]),
     createFormRow([
-      createGroupMemberPicker('PM Members', pmMembersField, pmMemberOptions),
-      createLabeledField('Status', new ComboBox(statusField, projectStatuses, { allowFiltering: false }))
+      createGroupMemberPicker('PM Members', pmMembersField, pmMemberOptions, false, { disabled: isClosed }),
+      createLabeledField('Status', statusCombo)
     ]),
     createFormRow([
-      createLabeledField('PM Scope', new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false })),
+      createLabeledField('PM Scope', pmScopeCombo),
     ])
   ])
 
@@ -130,12 +180,15 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
   const targetValuesField = new FormField({ value: project.TargetValues || [] })
   const targetScopeField = new FormField({ value: project.TargetScope || '' })
 
+  const targetTypeCombo = new ComboBox(targetTypeField, targetTypes, { allowFiltering: false, isDisabled: isClosed })
+  const targetScopeCombo = new ComboBox(targetScopeField, TARGET_SCOPES, { allowFiltering: true, isDisabled: isClosed })
+
   const impactSection = createFormSection('Project Impact', [
     createFormRow([
-      createLabeledField('Target Type', new ComboBox(targetTypeField, targetTypes, { allowFiltering: false })),
-      createLabeledField('Target Scope', new ComboBox(targetScopeField, TARGET_SCOPES, { allowFiltering: true }))
+      createLabeledField('Target Type', targetTypeCombo),
+      createLabeledField('Target Scope', targetScopeCombo)
     ]),
-    createMultiTargetValuePicker('Target Values', targetValuesField, targetValueTypes)
+    createMultiTargetValuePicker('Target Values', targetValuesField, targetValueTypes, { disabled: isClosed })
   ])
 
   // -------------------------------------------------------------------
@@ -145,6 +198,13 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
   let isCharteryDirty = false
   let isGovernanceDirty = false
   let isImpactDirty = false
+
+  // Set to true when the picker's emitted email differs from the stored project email.
+  // Prevents writing to SharePoint when the picker holds the seeded value or is empty
+  // (no stored person). Reset to false on discard so a discarded pick is not written
+  // on the next save.
+  let pmPickerTouched = false
+  let sponsorPickerTouched = false
 
   const stickyFooter = new Container([], { class: 'app-sticky-save-bar app-sticky-save-bar--hidden' })
 
@@ -173,28 +233,72 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     }
   }
 
-  // Mark charter dirty when any field changes
-  const charterFields = [projectNameField, contextField, objectivesField, projectTypeField, gdprField, startDateField, endDateField, umbrellaField, techProjectField, techPhaseField, projectManagerField]
-  charterFields.forEach(f => f.subscribe(() => { isCharteryDirty = true; updateStickyBar() }))
+  // Dirty tracking and sticky footer only apply when the project is open.
+  // When closed all controls are disabled so no user-driven changes can occur.
+  if (!isClosed) {
+    // Subscribe fields using value comparison so that ComboBox re-fires on initial
+    // render (which re-emits the stored value) and discard resets are both filtered
+    // out without a timing-based re-baseline. The stored value is read via a getter
+    // at subscriber call time, so it reflects saves (Object.assign(project, lastFresh))
+    // correctly.
+    //
+    // watchField compares comboValue(newVal) to the stored string. Handles both
+    // ComboBoxOptionProps objects and raw strings emitted by field resets.
+    function watchField(field, getStored, onDirty) {
+      field.subscribe((val) => {
+        if (comboValue(val) === (getStored() || '')) return
+        onDirty()
+      })
+    }
 
-  const governanceFields = [businessLineField, productField, sponsorField, stakeholdersField, pmMembersField, statusField, pmScopeField]
-  governanceFields.forEach(f => f.subscribe(() => { isGovernanceDirty = true; updateStickyBar() }))
+    // watchPickerField is the people-picker variant: compares emails case-insensitively
+    // so that seeding the stored person via resetPeoplePickerToStored never marks dirty,
+    // while a genuine user selection (different person or clear) does. Also sets the
+    // touched flag so saveCharter/saveGovernance includes the field in the SP update.
+    function watchPickerField(field, getStoredEmail, setTouched, onDirty) {
+      field.subscribe((val) => {
+        const newEmail = (val?.value?.email || val?.email || '').toLowerCase()
+        const storedEmail = (getStoredEmail() || '').toLowerCase()
+        if (newEmail === storedEmail) return
+        setTouched(true)
+        onDirty()
+      })
+    }
 
-  const impactFields = [targetTypeField, targetValuesField, targetScopeField]
-  impactFields.forEach(f => f.subscribe(() => { isImpactDirty = true; updateStickyBar() }))
+    const markCharteryDirty = () => { isCharteryDirty = true; updateStickyBar() }
+    const markGovernanceDirty = () => { isGovernanceDirty = true; updateStickyBar() }
+    const markImpactDirty = () => { isImpactDirty = true; updateStickyBar() }
 
-  // Re-baseline the dirty tracker: the Project Manager / Sponsor people-pickers
-  // resolve their saved value via an async AD round-trip (resolveUser), which
-  // sets the bound FormField AFTER the subscribers above are attached and thus
-  // falsely flags sections dirty on load. Once those pre-fills settle, clear the
-  // flags so a freshly opened Edit tab reads clean. (A rare user edit made within
-  // the sub-second resolve window would also be cleared -- acceptable trade-off.)
-  Promise.allSettled([pmResolve, sponsorResolve].filter(Boolean)).then(() => {
-    isCharteryDirty = false
-    isGovernanceDirty = false
-    isImpactDirty = false
-    updateStickyBar()
-  })
+    // Charter fields
+    watchField(projectNameField, () => project.Title, markCharteryDirty)
+    watchField(contextField, () => project.Context, markCharteryDirty)
+    watchField(objectivesField, () => project.Objectives, markCharteryDirty)
+    watchField(projectTypeField, () => project.ProjectType, markCharteryDirty)
+    watchField(subCategoryField, () => project.SubCategory, markCharteryDirty)
+    watchField(gdprField, () => project.GDPRClassification, markCharteryDirty)
+    watchField(startDateField, () => project.StartDate, markCharteryDirty)
+    watchField(endDateField, () => project.ExpectedEndDate, markCharteryDirty)
+    watchField(umbrellaField, () => project.LinkedPrograms, markCharteryDirty)
+    watchField(techProjectField, () => project.TechProject, markCharteryDirty)
+    watchField(techPhaseField, () => project.TechPhase, markCharteryDirty)
+    watchPickerField(projectManagerField, () => project.ProjectManagerEmail,
+      (v) => { pmPickerTouched = v }, markCharteryDirty)
+
+    // Governance fields
+    watchField(businessLineField, () => project.BusinessLine, markGovernanceDirty)
+    watchField(productField, () => project.Product, markGovernanceDirty)
+    watchField(statusField, () => project.Status, markGovernanceDirty)
+    watchField(pmScopeField, () => project.PMScope, markGovernanceDirty)
+    watchPickerField(sponsorField, () => project.Sponsor?.email,
+      (v) => { sponsorPickerTouched = v }, markGovernanceDirty)
+    stakeholdersField.subscribe(() => markGovernanceDirty())
+    pmMembersField.subscribe(() => markGovernanceDirty())
+
+    // Impact fields
+    watchField(targetTypeField, () => project.TargetType, markImpactDirty)
+    watchField(targetScopeField, () => project.TargetScope, markImpactDirty)
+    targetValuesField.subscribe(() => markImpactDirty())
+  }
 
   // -------------------------------------------------------------------
   // Allocation helper
@@ -217,15 +321,23 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
   // -------------------------------------------------------------------
 
   async function saveCharter() {
-    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return }
+    if (isClosed) { console.warn('[EditTab] blocked save — project is closed'); return null }
+    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return null }
     const umbrellaLabel = umbrellaField.value?.label || ''
+    // Only include PM fields when the user explicitly changed the picker.
+    // Skipping the write when untouched avoids triggering allocation cleanup
+    // for a PM the user did not change.
+    const pmIdentity = pmPickerTouched ? optionToUserIdentity(projectManagerField.value) : undefined
     const data = {
       Title: projectNameField.value,
-      ProjectManager: optionToUserIdentity(projectManagerField.value) || '',
-      ProjectManagerEmail: optionToUserIdentity(projectManagerField.value)?.email || '',
+      ...(pmPickerTouched ? {
+        ProjectManager: pmIdentity || '',
+        ProjectManagerEmail: pmIdentity?.email || '',
+      } : {}),
       Context: contextField.value,
       Objectives: objectivesField.value,
       ProjectType: comboValue(projectTypeField.value),
+      SubCategory: comboValue(subCategoryField.value),
       GDPRClassification: comboValue(gdprField.value),
       StartDate: startDateField.value,
       ExpectedEndDate: endDateField.value,
@@ -238,25 +350,34 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(project.UUID)
     if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
 
-    // Clean up old PM allocation when PM changes
-    const newPmEmail = (optionToUserIdentity(projectManagerField.value)?.email || '').toLowerCase()
-    const oldPmEmail = (project.ProjectManagerEmail || '').toLowerCase()
-    if (oldPmEmail && newPmEmail !== oldPmEmail) {
-      const storedMemberEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
-      if (!storedMemberEmails.includes(oldPmEmail)) {
-        await deleteAllocationByEmail(oldPmEmail)
+    // Clean up old PM allocation only when the user explicitly changed the picker.
+    // Guard on pmPickerTouched prevents treating an empty un-resolved field as
+    // "PM was removed", which would incorrectly delete the stored PM's allocation.
+    if (pmPickerTouched) {
+      const newPmEmail = (pmIdentity?.email || '').toLowerCase()
+      const oldPmEmail = (project.ProjectManagerEmail || '').toLowerCase()
+      if (oldPmEmail && newPmEmail !== oldPmEmail) {
+        const storedMemberEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
+        if (!storedMemberEmails.includes(oldPmEmail)) {
+          await deleteAllocationByEmail(oldPmEmail)
+        }
       }
     }
 
     isCharteryDirty = false
+    return fresh || null
   }
 
   async function saveGovernance() {
-    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return }
+    if (isClosed) { console.warn('[EditTab] blocked save — project is closed'); return null }
+    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return null }
+    // Only include Sponsor when the user explicitly changed the picker.
+    // Skipping the write when untouched preserves the stored Sponsor without
+    // a redundant update.
     const data = {
       BusinessLine: comboValue(businessLineField.value),
       Product: productField.value,
-      Sponsor: optionToUserIdentity(sponsorField.value) || '',
+      ...(sponsorPickerTouched ? { Sponsor: optionToUserIdentity(sponsorField.value) || '' } : {}),
       Stakeholders: stakeholdersField.value,
       PMMembers: pmMembersField.value,
       PMMembersEmail: (pmMembersField.value || []).map(ui => ui.email).join(';'),
@@ -271,16 +392,26 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     const newEmails = (pmMembersField.value || []).map(ui => ui.email.toLowerCase())
     const removed = oldEmails.filter(e => !newEmails.includes(e))
     if (removed.length) {
-      const currentPmEmail = (optionToUserIdentity(projectManagerField.value)?.email || project.ProjectManagerEmail || '').toLowerCase()
-      const toDelete = removed.filter(e => e !== currentPmEmail)
+      // Use the field value only if the PM picker was touched (user changed it).
+      // Otherwise fall back to the stored ProjectManagerEmail so an untouched
+      // picker does not appear as "no PM" and delete the stored allocation.
+      const currentPmEmail = (
+        pmPickerTouched
+          ? optionToUserIdentity(projectManagerField.value)?.email
+          : null
+      ) || (project.ProjectManagerEmail || '')
+      const currentPmEmailLower = currentPmEmail.toLowerCase()
+      const toDelete = removed.filter(e => e !== currentPmEmailLower)
       if (toDelete.length) await Promise.all(toDelete.map(deleteAllocationByEmail))
     }
 
     isGovernanceDirty = false
+    return fresh || null
   }
 
   async function saveImpact() {
-    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return }
+    if (isClosed) { console.warn('[EditTab] blocked save — project is closed'); return null }
+    if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return null }
     const data = {
       TargetType: comboValue(targetTypeField.value),
       TargetValues: targetValuesField.value,
@@ -290,6 +421,7 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(project.UUID)
     if (fresh && fresh['odata.etag']) project['odata.etag'] = fresh['odata.etag']
     isImpactDirty = false
+    return fresh || null
   }
 
   // -------------------------------------------------------------------
@@ -300,26 +432,62 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     variant: 'secondary',
     class: 'app-btn-secondary',
     onClickHandler: () => {
-      // Reset fields to original project data
+      // Reset tech field VALUES first so the factory creates combos with the correct
+      // pre-checked option when the category subscriber fires below.
+      techProjectField.value = project.TechProject || ''
+      techPhaseField.value = project.TechPhase || ''
+
+      // Reset category: resetComboToStored sets the field value then reassigns the
+      // dataset so the combo re-syncs its display. The dataset setter normalises the
+      // stored string to an option object, fires subscribers (tech field factory +
+      // bindSubCategoryToCategory), and re-renders the combo.
+      resetComboToStored(projectTypeCombo, projectTypeField, projectTypes, project.ProjectType || '')
+
+      // Restore sub category AFTER category reset; bindSubCategoryToCategory may have
+      // cleared it if the category changed during editing.
+      const discardSubOpts = getSubCategoryOptions(subCategoryMap, project.ProjectType || '')
+      subCategoryField.value = project.SubCategory || ''
+      subCategoryContainer.children = buildSubCategoryChildren(subCategoryField, discardSubOpts)
+
+      resetComboToStored(gdprCombo, gdprField, GDPR_CLASSIFICATIONS, project.GDPRClassification || '')
+
       projectNameField.value = project.Title || ''
       contextField.value = project.Context || ''
       objectivesField.value = project.Objectives || ''
-      projectTypeField.value = project.ProjectType || ''
-      gdprField.value = project.GDPRClassification || ''
       startDateField.value = project.StartDate || ''
       endDateField.value = project.ExpectedEndDate || ''
-      seedUmbrellaCurrent(umbrellaPicker, umbrellaField, umbrellaCurrent)
-      techProjectField.value = project.TechProject || ''
-      techPhaseField.value = project.TechPhase || ''
-      businessLineField.value = project.BusinessLine || ''
+      // Umbrella: resolve from the current project state so Discard after a Save
+      // restores the saved parent, not the page-load snapshot. Falls back to the
+      // page-load umbrellaCurrent if resolveUmbrellaOption was not supplied.
+      const discardUmbrellaOption = resolveUmbrellaOption ? resolveUmbrellaOption(project) : umbrellaCurrent
+      seedUmbrellaCurrent(umbrellaPicker, umbrellaField, discardUmbrellaOption)
+
+      // Restore People pickers synchronously from stored identity.
+      // resetPeoplePickerToStored is used instead of resolveUser to avoid an async
+      // AD lookup that could re-dirty the section after the bar hides.
+      resetPeoplePickerToStored(pmPicker, projectManagerField, project.ProjectManager)
+      resetPeoplePickerToStored(sponsorPicker, sponsorField, project.Sponsor)
+
+      resetComboToStored(businessLineCombo, businessLineField, businessLines, project.BusinessLine || '')
       productField.value = project.Product || ''
       stakeholdersField.value = project.Stakeholders || []
       pmMembersField.value = project.PMMembers || []
-      statusField.value = project.Status || ''
-      pmScopeField.value = project.PMScope || ''
-      targetTypeField.value = project.TargetType || ''
+      resetComboToStored(statusCombo, statusField, filteredStatuses, project.Status || '')
+      resetComboToStored(pmScopeCombo, pmScopeField, pmScopeOptions, project.PMScope || '')
+
+      resetComboToStored(targetTypeCombo, targetTypeField, targetTypes, project.TargetType || '')
       targetValuesField.value = project.TargetValues || []
-      targetScopeField.value = project.TargetScope || ''
+      resetComboToStored(targetScopeCombo, targetScopeField, TARGET_SCOPES, project.TargetScope || '')
+
+      // Clear touched flags AFTER all resets — resetting the pickers fires field
+      // subscribers synchronously (dirty tracker and touched flags) which would
+      // otherwise leave pmPickerTouched / sponsorPickerTouched set to true, causing
+      // the next Save to overwrite the stored PM/Sponsor or delete their allocation.
+      pmPickerTouched = false
+      sponsorPickerTouched = false
+
+      // Reset dirty AFTER all resyncs. The resets fire subscribers (marking dirty),
+      // but the explicit reset below wins -- the bar is hidden after this handler.
       isCharteryDirty = false
       isGovernanceDirty = false
       isImpactDirty = false
@@ -335,26 +503,46 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
           saveChangesBtn.isLoading = true
           const loading = Toast.loading('Saving...')
           try {
-            if (isCharteryDirty) await saveCharter()
-            if (isGovernanceDirty) await saveGovernance()
-            if (isImpactDirty) await saveImpact()
+            let lastFresh = null
+            if (isCharteryDirty) lastFresh = (await saveCharter()) || lastFresh
+            if (isGovernanceDirty) lastFresh = (await saveGovernance()) || lastFresh
+            if (isImpactDirty) lastFresh = (await saveImpact()) || lastFresh
             loading.success('Saved')
-            updateStickyBar()
+            // Update project baseline and notify parent (sidebar/header/overview refresh).
+            if (lastFresh) {
+              Object.assign(project, lastFresh)
+              if (onProjectSaved) onProjectSaved(lastFresh)
+            }
           } catch (err) {
             console.error('[EditTab] save changes:', err)
             loading.error('Failed to save')
           } finally {
+            // Reset isLoading BEFORE updateStickyBar. The bar hides on success (dirty
+            // flags cleared) which removes the button from the DOM. If we let the bar
+            // hide first, saveChangesBtn.isAlive becomes false and the reset is skipped,
+            // leaving the button stuck in loading state when it is re-mounted next save.
             if (saveChangesBtn.isAlive) saveChangesBtn.isLoading = false
+            updateStickyBar()
           }
         }
       })
     : new Text('You have read-only access to this project.', { type: 'p', class: 'app-readonly-notice' })
 
+  const closedNotice = isClosed
+    ? new Container([
+        new Text('This project is closed. All fields are read-only. Open the Project Review tab to add review notes, or use the Reopen action to resume editing.', {
+          type: 'p',
+          class: 'app-closed-notice__text'
+        })
+      ], { class: 'app-closed-notice' })
+    : null
+
   return new View([
+    ...(closedNotice ? [closedNotice] : []),
     charterSection,
     governanceSection,
     impactSection,
     ...(deleteButton ? [new Container([deleteButton], { class: 'app-danger-zone' })] : []),
-    stickyFooter
+    ...(!isClosed ? [stickyFooter] : [])
   ])
 }

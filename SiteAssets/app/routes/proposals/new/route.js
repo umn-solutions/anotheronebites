@@ -84,9 +84,9 @@ export default defineRoute(async (config) => {
   const titleLabeled = createLabeledField('Title', new TextInput(titleField, { placeholder: 'e.g. API Gateway Modernization' }), true)
   const contextLabeled = createLabeledField('Context', new TextArea(contextField, { placeholder: 'What is being proposed, and why now?' }))
 
-  // Short selects: 2-up grid (project type, business line, sponsor, PM scope)
+  // Short selects: 2-up grid (category, business line, sponsor, PM scope)
   const shortSelects = new Container([
-    createLabeledField('Project type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true, placeholder: 'Select...' })),
+    createLabeledField('Category', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true, placeholder: 'Select...' })),
     createLabeledField('Business line', new ComboBox(businessLineField, businessLines, { allowFiltering: true, allowCreate: true, placeholder: 'Select...' })),
     createLabeledField('Sponsor', new PeoplePicker(sponsorField, { placeholder: 'Select sponsor' })),
     createLabeledField('PM scope', new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false, placeholder: 'Select PM scope' })),

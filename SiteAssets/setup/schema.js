@@ -6,6 +6,7 @@ export const SCHEMA = {
     { title: 'Context', multiline: true },
     { title: 'Objectives', multiline: true },
     { title: 'ProjectType', indexed: true },
+    { title: 'SubCategory' },
     { title: 'TechProject' },
     { title: 'TechPhase' },
     { title: 'StartDate' },
@@ -31,6 +32,7 @@ export const SCHEMA = {
     { title: 'AchievedDate' },
     { title: 'Validated' },
     { title: 'NpsScore' },
+    { title: 'ReviewComments', multiline: true },
     { title: 'ClientFeedback', multiline: true },
     { title: 'Improvements', multiline: true },
     { title: 'AccessLevel', indexed: true },
@@ -75,6 +77,7 @@ export const SCHEMA = {
   Definitions: [
     { title: 'Value', indexed: true },
     { title: 'IsActive', indexed: true },
+    { title: 'ParentValue' },
   ],
 
   Scopes: [

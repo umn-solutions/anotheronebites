@@ -1,10 +1,10 @@
 import {
   View, Container, Text, TextInput, TextArea, DateInput, Button, FormField,
-  Dialog, Toast, generateUUIDv4, CurrentUser, ComboBox
+  Dialog, Toast, generateUUIDv4, CurrentUser, ComboBox, Router
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { LIST_PROJECTS, LIST_PROJECT_UPDATES } from '../../../utils/constants.js'
-import { createLabeledField } from '../../../utils/form-helpers.js'
-import { canPerformAction } from '../../../utils/access-control.js'
+import { LIST_PROJECTS, LIST_PROJECT_UPDATES, isProjectClosed, PROJECT_STATUS_COMPLETED } from '../../../utils/constants.js'
+import { createLabeledField, validatedField } from '../../../utils/form-helpers.js'
+import { canPerformAction, canCloseProject } from '../../../utils/access-control.js'
 import { styleAfterRender } from '../../../utils/dynamic-style.js'
 
 // Tag options for project updates. Stored as a plain string on the update record.
@@ -27,7 +27,7 @@ function markerColor(index) {
 }
 
 
-export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uuid, effectiveRole, onStatusChange }) {
+export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uuid, effectiveRole, userEmail, siteAccessLevel, onStatusChange }) {
   let updates = initialUpdates
 
   // Sort direction
@@ -162,23 +162,6 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
   // Hidden automatically via CSS :empty when it has no children.
   const errorSummary = new Container([], { class: 'app-form-error-summary' })
 
-  // Wrap a labeled field with an inline error-message slot and expose setError().
-  function validatedField(labelText, inputComponent, required) {
-    const msg = new Container([], { class: 'app-field__error' })
-    const wrap = new Container([
-      createLabeledField(labelText, inputComponent, required),
-      msg
-    ], { class: 'app-field' })
-    return {
-      node: wrap,
-      setError(text) {
-        const el = wrap.instance?.[0]
-        if (el) el.classList.toggle('app-field--error', !!text)
-        msg.children = text ? [new Text(text, { type: 'span' })] : []
-      }
-    }
-  }
-
   const titleVF = validatedField('Title', new TextInput(updateTitleField, { placeholder: 'Short headline' }), true)
   const descVF  = validatedField('Description', new TextArea(descriptionField, { placeholder: 'Describe what changed...', rows: 5 }), true)
   const tagVF   = validatedField('Tag', new ComboBox(updateTagField, UPDATE_TAGS, { allowFiltering: false }))
@@ -219,6 +202,14 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
       submitUpdateBtn.isLoading = true
       const loading = Toast.loading('Posting update...')
       try {
+        // Guard: re-fetch the project to ensure it has not been closed by another
+        // user while this dialog was open. Refuse to post on a closed project.
+        const freshCheck = await siteApi.list(LIST_PROJECTS).getItemByUUID(uuid)
+        if (freshCheck && freshCheck[0] && isProjectClosed(freshCheck[0])) {
+          loading.error('This project has been closed. Reload the page to see the latest state.')
+          return
+        }
+
         const updateUuid = generateUUIDv4()
         const currentUser = new CurrentUser()
         const tagVal = typeof updateTagField.value === 'object'
@@ -239,6 +230,9 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
         if (newEndDate && newEndDate !== project.ExpectedEndDate) {
           await siteApi.list(LIST_PROJECTS).updateItem(project.Id, { ExpectedEndDate: newEndDate }, project['odata.etag'])
           project.ExpectedEndDate = newEndDate
+          // Refresh etag so a subsequent Close/Reopen on the same page does not 412
+          const [freshAfterEndDate] = await siteApi.list(LIST_PROJECTS).getItemByUUID(uuid)
+          if (freshAfterEndDate?.['odata.etag']) project['odata.etag'] = freshAfterEndDate['odata.etag']
         }
         loading.success('Update posted')
         newUpdateDialog.close()
@@ -274,16 +268,18 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
   })
 
   // -------------------------------------------------------------------
-  // Close Project dialog
+  // Close Project dialog (open projects) and Reopen dialog (closed projects)
   // -------------------------------------------------------------------
 
   const canAddUpdate = canPerformAction(effectiveRole, 'addUpdate')
-  const canClose = canPerformAction(effectiveRole, 'close')
+  const isClosed = isProjectClosed(project)
+  const canClose = canCloseProject(project, userEmail, siteAccessLevel)
+  const canReopen = siteAccessLevel === 'ADMIN'
 
   let closeDialog = null
   let closeProjectBtn = null
 
-  if (canClose) {
+  if (!isClosed && canClose) {
     const closeDateField = new FormField({ value: new Date().toISOString().split('T')[0] })
 
     const confirmCloseBtn = new Button('Close project', {
@@ -298,26 +294,15 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
         confirmCloseBtn.isLoading = true
         const loading = Toast.loading('Closing project...')
         try {
-          const updatedItems = await siteApi.list(LIST_PROJECTS).updateItem(
+          await siteApi.list(LIST_PROJECTS).updateItem(
             project.Id,
-            { Status: 'Completed', CloseDate: closeDate },
+            { Status: PROJECT_STATUS_COMPLETED, CloseDate: closeDate },
             project['odata.etag']
           )
-          if (updatedItems && updatedItems[0] && updatedItems[0]['odata.etag']) {
-            project['odata.etag'] = updatedItems[0]['odata.etag']
-          } else {
-            const refreshed = await siteApi.list(LIST_PROJECTS).getItemByUUID(uuid)
-            if (refreshed && refreshed[0]) {
-              project['odata.etag'] = refreshed[0]['odata.etag']
-            }
-          }
-          project.Status = 'Completed'
-          project.CloseDate = closeDate
-          onStatusChange && onStatusChange('Completed')
           loading.success('Project closed')
           closeDialog.close()
-          closeProjectBtn.isDisabled = true
-          closeProjectBtn.children = [new Text('Project Closed')]
+          // Re-run the route: reconstructs tabs with correct disabled/enabled states
+          Router.navigateTo('projects/detail', { query: { uuid } })
         } catch (err) {
           console.error('[UpdatesTab] close project:', err)
           loading.error('Failed to close project')
@@ -339,7 +324,7 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
       title: `Close "${project.Title}"`,
       content: [
         new Text(
-          `Closing this project marks it as Completed and records the close date. The status can be changed back at any time from the Edit tab.`,
+          `Closing this project marks it as Completed and records the close date. The Edit tab will become read-only and the Project Review tab will unlock. Closure can be reversed by an admin via the Reopen action.`,
           { type: 'p' }
         ),
         createLabeledField('Close Date', new Container([
@@ -349,21 +334,77 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
       ]
     })
 
-    const isAlreadyClosed = project.Status === 'Completed'
-    closeProjectBtn = isAlreadyClosed
-      ? new Button('Project Closed', { variant: 'secondary', class: 'app-btn-danger-outline', isDisabled: true })
-      : new Button('Close project', {
-          variant: 'secondary',
-          class: 'app-btn-danger-outline',
-          onClickHandler: () => closeDialog.open()
-        })
+    closeProjectBtn = new Button('Close project', {
+      variant: 'secondary',
+      class: 'app-btn-danger-outline',
+      onClickHandler: () => closeDialog.open()
+    })
   }
 
   // -------------------------------------------------------------------
-  // New Update button
+  // Reopen dialog (ADMIN only, closed projects)
   // -------------------------------------------------------------------
 
-  const newUpdateBtn = canAddUpdate
+  let reopenDialog = null
+  let reopenProjectBtn = null
+
+  if (isClosed && canReopen) {
+    const confirmReopenBtn = new Button('Reopen project', {
+      variant: 'primary',
+      class: 'app-btn-primary',
+      onClickHandler: async () => {
+        confirmReopenBtn.isLoading = true
+        const loading = Toast.loading('Reopening project...')
+        try {
+          await siteApi.list(LIST_PROJECTS).updateItem(
+            project.Id,
+            { Status: 'In Progress', CloseDate: '' },
+            project['odata.etag']
+          )
+          loading.success('Project reopened')
+          reopenDialog.close()
+          // Re-run the route: reconstructs tabs with correct disabled/enabled states
+          Router.navigateTo('projects/detail', { query: { uuid } })
+        } catch (err) {
+          console.error('[UpdatesTab] reopen project:', err)
+          loading.error('Failed to reopen project')
+        } finally {
+          if (confirmReopenBtn.isAlive) confirmReopenBtn.isLoading = false
+        }
+      }
+    })
+
+    const cancelReopenBtn = new Button('Cancel', {
+      variant: 'secondary',
+      class: 'app-btn-secondary',
+      onClickHandler: () => reopenDialog.close()
+    })
+
+    reopenDialog = new Dialog({
+      closeOnFocusLoss: false,
+      class: 'app-modal-shell',
+      title: `Reopen "${project.Title}"`,
+      content: [
+        new Text(
+          `Reopening the project will set the status back to "In Progress" and clear the close date. Review data (NPS Score, Comments) is preserved. The Edit tab will become editable again and the Project Review tab will be locked.`,
+          { type: 'p' }
+        ),
+        new Container([cancelReopenBtn, confirmReopenBtn], { class: 'app-modal-actions' })
+      ]
+    })
+
+    reopenProjectBtn = new Button('Reopen project', {
+      variant: 'secondary',
+      class: 'app-btn-secondary',
+      onClickHandler: () => reopenDialog.open()
+    })
+  }
+
+  // -------------------------------------------------------------------
+  // New Update button (hidden when project is closed)
+  // -------------------------------------------------------------------
+
+  const newUpdateBtn = canAddUpdate && !isClosed
     ? new Button('New update', {
         variant: 'primary',
         class: 'app-btn-primary',
@@ -392,6 +433,7 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
   const toolbarRight = [sortBtn]
   if (newUpdateBtn) toolbarRight.push(newUpdateBtn)
   if (closeProjectBtn) toolbarRight.push(closeProjectBtn)
+  if (reopenProjectBtn) toolbarRight.push(reopenProjectBtn)
 
   const toolbar = new Container([
     new Container([
@@ -420,5 +462,5 @@ export function createUpdatesTab({ project, updates: initialUpdates, siteApi, uu
     updatesCard
   ], { class: 'app-updates-tab' })
 
-  return { view: updatesTab, dialog: newUpdateDialog, closeDialog }
+  return { view: updatesTab, dialog: newUpdateDialog, closeDialog, reopenDialog }
 }

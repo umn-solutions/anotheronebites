@@ -1014,6 +1014,11 @@ select:focus-visible {
 	margin-bottom: 0.75rem;
 }
 
+/* Sub Category container -- shares the same bottom-margin rhythm as sibling labeled fields */
+.app-subcategory-field {
+	margin-bottom: 0.75rem;
+}
+
 .app-labeled-field .nofbiz__fieldlabel__label {
 	font-size: var(--font-size-100);
 	font-weight: var(--font-weight-semibold);
@@ -1403,6 +1408,18 @@ select:focus-visible {
 }
 
 /* ==========================================================================
+   Field Hint
+   Muted caption shown below a field label or section heading.
+   ========================================================================== */
+
+.app-field-hint {
+	font-size: var(--font-size-200);
+	color: var(--app-text-muted);
+	margin-top: var(--space-xs);
+	margin-bottom: var(--space-sNudge);
+}
+
+/* ==========================================================================
    Compatibility aliases (for existing code using old token names)
    ========================================================================== */
 
@@ -1518,5 +1535,56 @@ select:focus-visible {
 
 .app-create-footer__spacer {
 	margin-left: auto;
+}
+
+/* Closed-project notice banner (top of Edit tab when isClosed) */
+.app-closed-notice {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-l);
+	padding: var(--space-l) var(--space-xxl);
+	background: var(--color-warning-background);
+	border: var(--stroke-thin) solid var(--color-warning-border);
+	border-radius: var(--app-card-radius);
+	margin-bottom: var(--app-section-gap);
+}
+
+.app-closed-notice__text {
+	margin: 0;
+	font-size: var(--font-size-300);
+	color: var(--color-warning-foreground);
+}
+
+/* Project Review tab styles */
+.app-review-field-ro {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+	margin-bottom: var(--space-l);
+}
+
+.app-review-field__label {
+	font-size: var(--font-size-200);
+	font-weight: var(--font-weight-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--app-text-muted);
+}
+
+.app-review-field__value {
+	font-size: var(--font-size-300);
+	color: var(--color-fg-primary);
+	margin: 0;
+	white-space: pre-wrap;
+}
+
+.app-review-field__value--empty {
+	color: var(--color-fg-tertiary);
+}
+
+.app-review-actions {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--space-l);
 }
 

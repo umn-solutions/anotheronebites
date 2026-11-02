@@ -394,7 +394,7 @@ export default defineRoute(async (config) => {
 
 	const projTypeCombo = new ComboBox(typeFilter, projectTypeOptions, {
 		allowFiltering: false,
-		placeholder: "Project type",
+		placeholder: "Category",
 	});
 
 	const pmScopeCombo = canAccessAdmin

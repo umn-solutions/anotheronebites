@@ -80,6 +80,35 @@
 	letter-spacing: 0.02em;
 }
 
+/* ---------- Sub Categories Tab ---------- */
+
+.app-admin-subcategory-group {
+	border: var(--stroke-thin) solid var(--app-border);
+	border-radius: var(--app-card-radius);
+	padding: var(--space-l);
+	margin-bottom: var(--space-l);
+	background: var(--app-surface-base);
+}
+
+.app-admin-subcategory-parent-heading {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+	margin: 0 0 var(--space-sNudge);
+}
+
+.app-admin-subcategory-parent-heading--inactive {
+	color: var(--app-text-muted);
+	font-style: italic;
+}
+
+.app-admin-empty-note {
+	font-size: var(--font-size-300);
+	color: var(--app-text-muted);
+	font-style: italic;
+	margin: 0;
+}
+
 /* ---------- Add Row ---------- */
 
 .app-admin-add-row {
@@ -93,105 +122,248 @@
 	flex: 1;
 }
 
-/* ---------- Team Management Table ---------- */
+/* ---------- Capacity Tracker Gantt ---------- */
 
-.app-team-table {
+/* Toolbar: month nav + status filter */
+.app-gantt-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+	margin-bottom: var(--space-l);
+	flex-wrap: wrap;
+}
+
+.app-gantt-month-label {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 148px;
+}
+
+.app-gantt-month-text {
+	font-size: var(--font-size-400);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+	text-align: center;
+}
+
+.app-gantt-filter-group {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sNudge);
+	margin-left: var(--space-l);
+}
+
+.app-gantt-filter-label {
+	white-space: nowrap;
+}
+
+.app-gantt-filter-group .nofbiz__combobox {
+	min-width: 200px;
+}
+
+/* Horizontal scroll wrapper for narrow viewports */
+.app-gantt-scroll {
+	overflow-x: auto;
+}
+
+/* Gantt grid: flex column, rows stacked */
+.app-gantt-grid {
+	display: flex;
+	flex-direction: column;
+	min-width: 640px;
 	border: var(--stroke-thin) solid var(--app-border);
 	border-radius: var(--app-card-radius);
 	overflow: hidden;
 	box-shadow: var(--app-card-shadow);
 }
 
-.app-team-header,
-.app-team-row {
+/* Shared row grid: 6 columns (PM | Total | W1 | W2 | W3 | W4) */
+.app-gantt-data-row {
 	display: grid;
-	grid-template-columns: 1fr 1.5fr 6rem;
-	align-items: center;
-	padding: 0.6rem 1rem;
-	gap: 1rem;
+	grid-template-columns: minmax(180px, 2.5fr) 110px repeat(4, minmax(80px, 1fr));
 }
 
-.app-team-header {
+/* Header row */
+.app-gantt-header-row {
 	background: var(--app-surface-raised);
-	border-bottom: var(--stroke-thin) solid var(--app-border);
+	border-bottom: var(--stroke-thick) solid var(--app-border);
 }
 
-.app-team-header-cell {
-	font-size: var(--font-size-200);
+.app-gantt-header-cell {
+	font-size: var(--font-size-100);
 	font-weight: var(--font-weight-semibold);
 	text-transform: uppercase;
-	letter-spacing: 0.02em;
+	letter-spacing: 0.08em;
 	color: var(--app-text-muted);
 }
 
-.app-team-member {
-	border-bottom: var(--stroke-thin) solid var(--app-border);
-}
-
-.app-team-member:last-child {
-	border-bottom: none;
-}
-
-.app-team-row {
-	background: var(--app-surface-base);
-	cursor: default;
-}
-
-.app-team-row:hover {
-	background: var(--app-bg-light);
-}
-
-.app-team-name {
+.app-gantt-week-label {
 	font-size: var(--font-size-300);
 	font-weight: var(--font-weight-semibold);
 	color: var(--color-fg-primary);
 }
 
-.app-team-email {
-	font-size: var(--font-size-300);
+.app-gantt-week-range {
+	font-size: var(--font-size-100);
+	color: var(--app-text-muted);
+	margin-top: 1px;
+}
+
+/* All row cells share base padding and border */
+.app-gantt-row-cell {
+	padding: 0.5rem 0.75rem;
+	border-right: var(--stroke-thin) solid var(--app-border);
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	min-height: 44px;
+}
+
+.app-gantt-row-cell:last-child {
+	border-right: none;
+}
+
+/* Member group (summary row + its project rows) */
+.app-gantt-member-group {
+	border-bottom: var(--stroke-thin) solid var(--app-border);
+}
+
+.app-gantt-member-group:last-of-type {
+	border-bottom: none;
+}
+
+/* Member summary row */
+.app-gantt-member-row {
+	background: var(--app-surface-base);
+}
+
+.app-gantt-member-row--zero .app-gantt-member-name {
 	color: var(--app-text-muted);
 }
 
-.app-team-total {
+.app-gantt-member-name {
 	font-size: var(--font-size-300);
 	font-weight: var(--font-weight-semibold);
-	color: var(--app-success);
-	text-align: right;
+	color: var(--color-fg-primary);
 }
 
-.app-team-total--over {
+.app-gantt-total-projects {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+}
+
+.app-gantt-total-projects--zero {
+	color: var(--app-text-muted);
+	font-weight: var(--font-weight-regular);
+}
+
+/* Week cells in member summary rows */
+.app-gantt-week-fte {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+}
+
+.app-gantt-week-count {
+	font-size: var(--font-size-100);
+	color: var(--app-text-muted);
+	margin-top: 1px;
+}
+
+/* Over-allocated week cell */
+.app-gantt-week-over .app-gantt-week-fte {
 	color: var(--color-danger-primary);
 }
 
-.app-team-breakdown-row {
-	display: grid;
-	grid-template-columns: 1fr 6rem;
-	padding: 0.3rem 1rem 0.3rem 2.5rem;
-	gap: 1rem;
+.app-gantt-over-label {
+	font-size: var(--font-size-100);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-danger-primary);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	margin-top: 2px;
+}
+
+/* Project gantt rows */
+.app-gantt-project-row {
 	background: var(--app-surface-sunken);
 	border-top: var(--stroke-thin) solid var(--app-border);
 }
 
-.app-team-project-id {
-	font-size: var(--font-size-200);
-	color: var(--app-text-muted);
-	font-family: monospace;
+.app-gantt-project-title-cell {
+	padding-left: 1.5rem;
+	flex-direction: row;
+	align-items: center;
+	gap: 0.4rem;
+	flex-wrap: wrap;
 }
 
-.app-team-project-percent {
+.app-gantt-project-title {
 	font-size: var(--font-size-200);
-	color: var(--app-text-muted);
-	text-align: right;
+	color: var(--color-fg-primary);
 }
 
-.app-team-no-alloc {
-	display: block;
-	padding: 0.3rem 1rem 0.3rem 2.5rem;
+.app-gantt-project-fte {
 	font-size: var(--font-size-200);
 	color: var(--app-text-muted);
-	font-style: italic;
-	background: var(--app-surface-sunken);
-	border-top: var(--stroke-thin) solid var(--app-border);
+}
+
+/* Bar cells (active week cells in project rows) */
+.app-gantt-bar-cell {
+	background: var(--app-primary-light);
+	align-items: center;
+	justify-content: center;
+	min-height: 36px;
+}
+
+.app-gantt-bar-fte {
+	font-size: var(--font-size-100);
+	font-weight: var(--font-weight-semibold);
+	color: var(--app-primary-active);
+	white-space: nowrap;
+}
+
+/* Bar start: left rounded corners */
+.app-gantt-bar-cell--start {
+	border-top-left-radius: var(--radius-md);
+	border-bottom-left-radius: var(--radius-md);
+}
+
+/* Bar end: right rounded corners */
+.app-gantt-bar-cell--end {
+	border-top-right-radius: var(--radius-md);
+	border-bottom-right-radius: var(--radius-md);
+}
+
+/* Single-cell bar: all corners rounded */
+.app-gantt-bar-cell--single {
+	border-radius: var(--radius-md);
+}
+
+/* Totals row */
+.app-gantt-totals-row {
+	background: var(--app-surface-raised);
+	border-top: var(--stroke-thick) solid var(--app-border);
+}
+
+.app-gantt-totals-label {
+	font-size: var(--font-size-300);
+	font-weight: var(--font-weight-semibold);
+	color: var(--color-fg-primary);
+}
+
+/* Empty messages inside gantt area */
+.app-gantt-empty-message {
+	padding: var(--space-xxl) var(--space-l);
+}
+
+.app-gantt-no-statuses-msg {
+	color: var(--app-text-muted);
+	font-size: var(--font-size-300);
+	text-align: center;
+	margin: 0;
 }
 
 /* ---------- Scopes Tab ---------- */

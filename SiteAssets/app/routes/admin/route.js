@@ -2,8 +2,9 @@ import {
   defineRoute, ViewSwitcher, View, Container, Text, Card, LinkButton, Button, SiteApi, SystemError, CurrentUser, Toast
 } from '../../libs/nofbiz/nofbiz.base.js'
 import { exportSiteDataToExcel } from '../../utils/export-excel.js'
-import { LIST_DEFINITIONS, LIST_SCOPES } from '../../utils/constants.js'
+import { LIST_DEFINITIONS, LIST_SCOPES, P4P_SCOPE_TITLE } from '../../utils/constants.js'
 import { getPlatformMemberOptions } from '../../utils/members.js'
+import { getP4PMembers } from '../../utils/scopes.js'
 import { createDefinitionsTab } from './utils/definitions-tab.js'
 import { createTeamTab } from './utils/team-tab.js'
 import { createScopesTab } from './utils/scopes-tab.js'
@@ -16,7 +17,8 @@ export default defineRoute(async (config) => {
   }
 
   const CATEGORY_MAP = [
-    ['ProjectTypes', 'Project Types'],
+    ['ProjectTypes', 'Categories'],
+    ['SubCategories', 'Sub Categories'],
     ['TechProjects', 'Tech Projects'],
     ['TechPhases', 'Tech Phases'],
     ['ProjectStatuses', 'Project Statuses'],
@@ -28,12 +30,36 @@ export default defineRoute(async (config) => {
   const siteApi = new SiteApi()
   const listApi = siteApi.list(LIST_DEFINITIONS)
   const scopesListApi = siteApi.list(LIST_SCOPES)
-  const [initialItems, pmGroupMembers, scopeItems, memberOptions] = await Promise.all([
+  const [initialItems, scopeItems, memberOptions] = await Promise.all([
     listApi.getItems(),
-    siteApi.getGroupUsers('ProjectManagers'),
     scopesListApi.getItems(),
     getPlatformMemberOptions(siteApi),
   ])
+
+  // ------------------------------------------------------------------
+  // Ensure P4P scope exists (idempotent). P4P is the allocation pool
+  // and must always be active. Admins have write access so this is safe here.
+  // ------------------------------------------------------------------
+
+  const p4pRow = scopeItems.find(s => s.Title === P4P_SCOPE_TITLE)
+  if (!p4pRow) {
+    try {
+      await scopesListApi.createItem({ Title: P4P_SCOPE_TITLE, IsActive: 'true', Members: [] })
+    } catch (err) {
+      console.error('[Admin] Failed to create P4P scope', err)
+      Toast.error('Could not create the P4P scope. Please reload.')
+    }
+  } else if (p4pRow.IsActive === false || p4pRow.IsActive === 'false') {
+    try {
+      await scopesListApi.updateItem(p4pRow.Id, { IsActive: 'true' }, p4pRow['odata.etag'])
+    } catch (err) {
+      console.error('[Admin] Failed to re-enable P4P scope', err)
+      Toast.error('Could not re-enable the P4P scope. Please reload.')
+    }
+  }
+
+  // p4pMembers: UserIdentity[] from the P4P scope (allocation pool)
+  const p4pMembers = getP4PMembers(scopeItems)
 
   const { tabGroup: definitionsTabGroup } = createDefinitionsTab({
     listApi,
@@ -41,7 +67,7 @@ export default defineRoute(async (config) => {
     categoryMap: CATEGORY_MAP,
   })
 
-  const teamView = await createTeamTab({ siteApi, pmGroupMembers })
+  const teamView = await createTeamTab({ siteApi, p4pMembers })
   const scopesView = createScopesTab({ listApi: scopesListApi, scopeItems, memberOptions })
 
   // ------------------------------------------------------------------

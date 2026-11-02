@@ -50,35 +50,32 @@ var _P = {
 };
 
 var _spMockData = {
-  // Site groups (doubles as current user's group list). john.doe is a
-  // ProjectManager and Admin. Users listed for completeness so getSiteGroups()
-  // enumerates the full new structure (Users / ProjectManagers / Admins).
+  // Site groups (doubles as current user's group list). john.doe is in Admins.
+  // Two access tiers: Users and Admins. ProjectManagers group has been retired;
+  // the P4P scope in the Scopes list is now the allocation pool.
   groups: [
     { Id: 10, Title: 'Users', Description: 'Standard platform access', OwnerTitle: 'Admin' },
-    { Id: 20, Title: 'ProjectManagers', Description: 'Project management access', OwnerTitle: 'Admin' },
     { Id: 30, Title: 'Admins', Description: 'Full administrative access', OwnerTitle: 'Admin' },
   ],
 
   // Group membership for getGroupUsers() handler.
   // Keyed by group Title -- the interceptor resolves members via
-  // store.groupMembers[groupTitle] (spInterceptor.js). New group structure:
-  // Users / ProjectManagers / Admins (Collaborators retired -> Users).
+  // store.groupMembers[groupTitle] (spInterceptor.js).
+  // Users / Admins only. The old ProjectManagers group has been retired.
+  // The platform member options (scope member picker) come from Users + Admins.
   groupMembers: {
     Users: [
-      { Id: 7, LoginName: 'i:0#.w|SANDBOX\\bjones', Title: _P.bobJones[1], Email: _P.bobJones[0] },
-      { Id: 8, LoginName: 'i:0#.w|SANDBOX\\amartin', Title: _P.alexMartin[1], Email: _P.alexMartin[0] },
-      { Id: 9, LoginName: 'i:0#.w|SANDBOX\\jlee', Title: _P.jenniferLee[1], Email: _P.jenniferLee[0] },
-      { Id: 10, LoginName: 'i:0#.w|SANDBOX\\mbrown', Title: _P.mikeBrown[1], Email: _P.mikeBrown[0] },
-      { Id: 11, LoginName: 'i:0#.w|SANDBOX\\dpark', Title: _P.davidPark[1], Email: _P.davidPark[0] },
-      { Id: 12, LoginName: 'i:0#.w|SANDBOX\\ewhite', Title: _P.emmaWhite[1], Email: _P.emmaWhite[0] },
-    ],
-    ProjectManagers: [
-      { Id: 1, LoginName: 'i:0#.w|SANDBOX\\john.doe', Title: _P.johnDoe[1], Email: _P.johnDoe[0] },
-      { Id: 2, LoginName: 'i:0#.w|SANDBOX\\jsmith', Title: _P.janeSmith[1], Email: _P.janeSmith[0] },
-      { Id: 3, LoginName: 'i:0#.w|SANDBOX\\mgarcia', Title: _P.mariaGarcia[1], Email: _P.mariaGarcia[0] },
-      { Id: 4, LoginName: 'i:0#.w|SANDBOX\\swilliams', Title: _P.sarahWilliams[1], Email: _P.sarahWilliams[0] },
-      { Id: 5, LoginName: 'i:0#.w|SANDBOX\\awong', Title: _P.aliceWong[1], Email: _P.aliceWong[0] },
-      { Id: 6, LoginName: 'i:0#.w|SANDBOX\\cdiaz', Title: _P.carlosDiaz[1], Email: _P.carlosDiaz[0] },
+      { Id: 2, LoginName: 'i:0#.w|SANDBOX\\jsmith',     Title: _P.janeSmith[1],     Email: _P.janeSmith[0] },
+      { Id: 3, LoginName: 'i:0#.w|SANDBOX\\mgarcia',    Title: _P.mariaGarcia[1],   Email: _P.mariaGarcia[0] },
+      { Id: 4, LoginName: 'i:0#.w|SANDBOX\\swilliams',  Title: _P.sarahWilliams[1], Email: _P.sarahWilliams[0] },
+      { Id: 5, LoginName: 'i:0#.w|SANDBOX\\awong',      Title: _P.aliceWong[1],     Email: _P.aliceWong[0] },
+      { Id: 6, LoginName: 'i:0#.w|SANDBOX\\cdiaz',      Title: _P.carlosDiaz[1],    Email: _P.carlosDiaz[0] },
+      { Id: 7, LoginName: 'i:0#.w|SANDBOX\\bjones',     Title: _P.bobJones[1],      Email: _P.bobJones[0] },
+      { Id: 8, LoginName: 'i:0#.w|SANDBOX\\amartin',    Title: _P.alexMartin[1],    Email: _P.alexMartin[0] },
+      { Id: 9, LoginName: 'i:0#.w|SANDBOX\\jlee',       Title: _P.jenniferLee[1],   Email: _P.jenniferLee[0] },
+      { Id: 10, LoginName: 'i:0#.w|SANDBOX\\mbrown',    Title: _P.mikeBrown[1],     Email: _P.mikeBrown[0] },
+      { Id: 11, LoginName: 'i:0#.w|SANDBOX\\dpark',     Title: _P.davidPark[1],     Email: _P.davidPark[0] },
+      { Id: 12, LoginName: 'i:0#.w|SANDBOX\\ewhite',    Title: _P.emmaWhite[1],     Email: _P.emmaWhite[0] },
     ],
     Admins: [
       { Id: 1, LoginName: 'i:0#.w|SANDBOX\\john.doe', Title: _P.johnDoe[1], Email: _P.johnDoe[0] },
@@ -97,6 +94,7 @@ var _spMockData = {
         { Title: 'Objectives', InternalName: 'Objectives', TypeAsString: 'Note', FieldTypeKind: 3, Indexed: false },
         { Title: 'Scope', InternalName: 'Scope', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
         { Title: 'ProjectType', InternalName: 'ProjectType', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
+        { Title: 'SubCategory', InternalName: 'SubCategory', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
         { Title: 'TechProject', InternalName: 'TechProject', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
         { Title: 'TechPhase', InternalName: 'TechPhase', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
         { Title: 'StartDate', InternalName: 'StartDate', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
@@ -120,6 +118,7 @@ var _spMockData = {
         { Title: 'AchievedDate', InternalName: 'AchievedDate', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
         { Title: 'Validated', InternalName: 'Validated', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
         { Title: 'NpsScore', InternalName: 'NpsScore', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
+        { Title: 'ReviewComments', InternalName: 'ReviewComments', TypeAsString: 'Note', FieldTypeKind: 3, Indexed: false },
         { Title: 'ClientFeedback', InternalName: 'ClientFeedback', TypeAsString: 'Note', FieldTypeKind: 3, Indexed: false },
         { Title: 'Improvements', InternalName: 'Improvements', TypeAsString: 'Note', FieldTypeKind: 3, Indexed: false },
         { Title: 'AccessLevel', InternalName: 'AccessLevel', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
@@ -137,6 +136,7 @@ var _spMockData = {
           Objectives: 'Deliver daily risk exposure reports in under 2 hours instead of the current 8-hour batch process.',
           Scope: 'In Scope',
           ProjectType: 'Tech',
+          SubCategory: 'Power Platform',
           TechProject: 'PowerBI',
           TechPhase: 'Discovery',
           StartDate: '2026-02-01',
@@ -160,6 +160,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.mariaGarcia[0], _P.mariaGarcia[1]),
@@ -200,6 +201,7 @@ var _spMockData = {
           AchievedDate: '2026-01-15',
           Validated: 'true',
           NpsScore: '8',
+          ReviewComments: 'Project delivered strong compliance automation with measurable audit efficiency gains. Team collaboration was excellent and stakeholder alignment remained solid throughout. Minor integration gaps identified for the next phase.',
           ClientFeedback: 'Excellent tool that has significantly streamlined our compliance workflows. The automated checks catch issues we previously missed in manual reviews.',
           Improvements: 'Would benefit from integration with the new regulatory feed API. Also, the report export could support more formats beyond PDF.',
           SubmittedBy: _ui(_P.sarahWilliams[0], _P.sarahWilliams[1]),
@@ -239,6 +241,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.aliceWong[0], _P.aliceWong[1]),
@@ -279,6 +282,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
@@ -295,6 +299,7 @@ var _spMockData = {
           Objectives: 'Reduce credit decisioning latency from 3 seconds to under 200ms while maintaining model accuracy above 94%.',
           Scope: 'In Scope',
           ProjectType: 'Tech',
+          SubCategory: 'Cloud & Infra',
           TechProject: 'Dataiku',
           TechPhase: 'Dev',
           StartDate: '2026-01-20',
@@ -318,6 +323,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.alexMartin[0], _P.alexMartin[1]),
@@ -334,6 +340,7 @@ var _spMockData = {
           Objectives: 'Enable feature reuse across 5+ models and reduce data preparation time by 60%.',
           Scope: 'In Scope',
           ProjectType: 'Data',
+          SubCategory: 'Analytics',
           TechProject: '',
           TechPhase: '',
           StartDate: '2026-02-15',
@@ -357,6 +364,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.jenniferLee[0], _P.jenniferLee[1]),
@@ -396,6 +404,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.bobJones[0], _P.bobJones[1]),
@@ -435,6 +444,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.davidPark[0], _P.davidPark[1]),
@@ -454,7 +464,7 @@ var _spMockData = {
           TechProject: 'LightDev',
           TechPhase: 'Dev',
           StartDate: '2025-12-01',
-          ExpectedEndDate: '2026-07-31',
+          ExpectedEndDate: '2026-11-18',
           GDPRClassification: 'Contact Information (CPD)',
           BusinessLine: 'TB',
           Product: 'Pulse Mobile',
@@ -474,6 +484,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.carlosDiaz[0], _P.carlosDiaz[1]),
@@ -513,6 +524,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.sarahWilliams[0], _P.sarahWilliams[1]),
@@ -552,6 +564,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.aliceWong[0], _P.aliceWong[1]),
@@ -568,6 +581,7 @@ var _spMockData = {
           Objectives: 'Complete migration of 400,000 documents across 80 site collections with zero data loss and less than 4 hours of downtime.',
           Scope: 'In Scope',
           ProjectType: 'Tech',
+          SubCategory: 'SharePoint & O365',
           TechProject: 'SharePoint',
           TechPhase: 'Business Case',
           StartDate: '2026-04-01',
@@ -591,6 +605,7 @@ var _spMockData = {
           AchievedDate: '',
           Validated: 'false',
           NpsScore: '',
+          ReviewComments: '',
           ClientFeedback: '',
           Improvements: '',
           SubmittedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
@@ -807,11 +822,12 @@ var _spMockData = {
     },
 
     Definitions: {
-      nextId: 47,
+      nextId: 55,
       fields: [
         { Title: 'Title', InternalName: 'Title', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
         { Title: 'Value', InternalName: 'Value', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
         { Title: 'IsActive', InternalName: 'IsActive', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
+        { Title: 'ParentValue', InternalName: 'ParentValue', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: false },
       ],
       items: [
         // ProjectTypes (IDs 1-6)
@@ -867,6 +883,15 @@ var _spMockData = {
         { Id: 44, Title: 'TargetValueTypes', Value: 'USD', IsActive: 'true' },
         { Id: 45, Title: 'TargetValueTypes', Value: 'GBP', IsActive: 'true' },
         { Id: 46, Title: 'TargetValueTypes', Value: 'FTE', IsActive: 'true' },
+        // SubCategories (IDs 47-54) -- Tech has 3 active + 1 inactive; Data has 2; Lean has 2; PMO has none (tests hide path)
+        { Id: 47, Title: 'SubCategories', Value: 'SharePoint & O365', IsActive: 'true',  ParentValue: 'Tech' },
+        { Id: 48, Title: 'SubCategories', Value: 'Power Platform',    IsActive: 'true',  ParentValue: 'Tech' },
+        { Id: 49, Title: 'SubCategories', Value: 'Cloud & Infra',     IsActive: 'true',  ParentValue: 'Tech' },
+        { Id: 50, Title: 'SubCategories', Value: 'Automation & RPA',  IsActive: 'false', ParentValue: 'Tech' },
+        { Id: 51, Title: 'SubCategories', Value: 'Analytics',         IsActive: 'true',  ParentValue: 'Data' },
+        { Id: 52, Title: 'SubCategories', Value: 'Integration',       IsActive: 'true',  ParentValue: 'Data' },
+        { Id: 53, Title: 'SubCategories', Value: 'Process Improvement', IsActive: 'true', ParentValue: 'Lean' },
+        { Id: 54, Title: 'SubCategories', Value: 'Compliance',        IsActive: 'true',  ParentValue: 'Lean' },
       ],
     },
 
@@ -878,10 +903,11 @@ var _spMockData = {
         { Title: 'IsActive', InternalName: 'IsActive', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
       ],
       items: [
-        // P4P has bob.jones (Collaborator) as a member to demonstrate additive access grant
-        // Project 6 (Saba) has PMScope: 'P4P' and AccessLevel: 'Internal',
-        // so bob.jones gains reader access via scope membership
-        { Id: 1, Title: 'P4P', IsActive: 'true', Members: _uiArr([_P.bobJones]) },
+        // P4P is the allocation pool. Members get reader access on all non-Confidential
+        // projects (step 5 in resolveEffectiveRole, overrides Internal).
+        // Saba (id 6, AccessLevel: 'Internal') is accessible to Bob Jones because
+        // he is a P4P member -- the P4P rule fires before the Internal block.
+        { Id: 1, Title: 'P4P', IsActive: 'true', Members: _uiArr([_P.bobJones, _P.johnDoe, _P.janeSmith, _P.mariaGarcia, _P.sarahWilliams, _P.aliceWong, _P.carlosDiaz]) },
         { Id: 2, Title: 'P4P Transversalities', IsActive: 'true', Members: '[]' },
         { Id: 3, Title: 'We Motion', IsActive: 'true', Members: '[]' },
         { Id: 4, Title: 'GB&FIC PT', IsActive: 'true', Members: '[]' },
@@ -923,7 +949,7 @@ var _spMockData = {
       ],
     },
     Allocations: {
-      nextId: 6,
+      nextId: 14,
       fields: [
         { Title: 'Title', InternalName: 'Title', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
         { Title: 'ProjectUUID', InternalName: 'ProjectUUID', TypeAsString: 'Text', FieldTypeKind: 2, Indexed: true },
@@ -941,6 +967,86 @@ var _spMockData = {
           UserEmail: 'john.doe@example.com',
           UserDisplayName: 'John Doe',
           AllocationPercent: '0.25',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 6,
+          Title: 'uuid-proj-012_carlos.diaz@example.com',
+          ProjectUUID: 'uuid-proj-012',
+          UserEmail: 'carlos.diaz@example.com',
+          UserDisplayName: 'Carlos Diaz',
+          AllocationPercent: '0.5',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 7,
+          Title: 'uuid-proj-013_sarah.williams@example.com',
+          ProjectUUID: 'uuid-proj-013',
+          UserEmail: 'sarah.williams@example.com',
+          UserDisplayName: 'Sarah Williams',
+          AllocationPercent: '0.6',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 8,
+          Title: 'uuid-proj-005_sarah.williams@example.com',
+          ProjectUUID: 'uuid-proj-005',
+          UserEmail: 'sarah.williams@example.com',
+          UserDisplayName: 'Sarah Williams',
+          AllocationPercent: '0.3',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 9,
+          Title: 'uuid-proj-006_alice.wong@example.com',
+          ProjectUUID: 'uuid-proj-006',
+          UserEmail: 'alice.wong@example.com',
+          UserDisplayName: 'Alice Wong',
+          AllocationPercent: '0.4',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 10,
+          Title: 'uuid-proj-014_alice.wong@example.com',
+          ProjectUUID: 'uuid-proj-014',
+          UserEmail: 'alice.wong@example.com',
+          UserDisplayName: 'Alice Wong',
+          AllocationPercent: '0.7',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 11,
+          Title: 'uuid-proj-010_bob.jones@example.com',
+          ProjectUUID: 'uuid-proj-010',
+          UserEmail: 'bob.jones@example.com',
+          UserDisplayName: 'Bob Jones',
+          AllocationPercent: '0.5',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 12,
+          Title: 'uuid-proj-015_john.doe@example.com',
+          ProjectUUID: 'uuid-proj-015',
+          UserEmail: 'john.doe@example.com',
+          UserDisplayName: 'John Doe',
+          AllocationPercent: '0.5',
+          UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
+          UpdatedByEmail: 'john.doe@example.com',
+        },
+        {
+          Id: 13,
+          Title: 'uuid-proj-004_maria.garcia@example.com',
+          ProjectUUID: 'uuid-proj-004',
+          UserEmail: 'maria.garcia@example.com',
+          UserDisplayName: 'Maria Garcia',
+          AllocationPercent: '0.3',
           UpdatedBy: _ui(_P.johnDoe[0], _P.johnDoe[1]),
           UpdatedByEmail: 'john.doe@example.com',
         },

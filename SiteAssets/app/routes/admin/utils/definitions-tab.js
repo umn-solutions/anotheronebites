@@ -12,9 +12,30 @@ export function createDefinitionsTab({ listApi, initialItems, categoryMap }) {
     return grouped
   }
 
+  // Group sub category items (Title==='SubCategories') by their ParentValue
+  function groupSubCategoriesByParent(items) {
+    const byParent = new Map()
+    for (const item of items) {
+      if (item.Title !== 'SubCategories') continue
+      const parent = item.ParentValue || ''
+      if (!parent) continue
+      if (!byParent.has(parent)) byParent.set(parent, [])
+      byParent.get(parent).push(item)
+    }
+    return byParent
+  }
+
   const tabContentRefs = new Map()
 
-  function buildTabContent(categoryKey, displayName, items) {
+  /**
+   * Build the list of children for a single category tab content.
+   * @param {string} categoryKey
+   * @param {string} displayName
+   * @param {object[]} items - raw Definitions rows for this category/parent
+   * @param {function|null} createPayloadFn - optional; receives trimmedValue and returns
+   *   the object to pass to listApi.createItem. Defaults to {Title:categoryKey, Value, IsActive}.
+   */
+  function buildTabContent(categoryKey, displayName, items, createPayloadFn = null) {
     const categoryItems = items || []
     const activeItems = categoryItems.filter(i => i.IsActive === true)
     const inactiveItems = categoryItems.filter(i => i.IsActive !== true)
@@ -95,11 +116,15 @@ export function createDefinitionsTab({ listApi, initialItems, categoryMap }) {
       addBtn.isLoading = true
       const loading = Toast.loading('Adding...')
       try {
-        await listApi.createItem({ Title: categoryKey, Value: trimmedValue, IsActive: 'true' })
+        const payload = createPayloadFn
+          ? createPayloadFn(trimmedValue)
+          : { Title: categoryKey, Value: trimmedValue, IsActive: 'true' }
+        await listApi.createItem(payload)
         loading.success('Added')
         addField.value = ''
         await refreshAll()
-      } catch {
+      } catch (err) {
+        console.error('[DefinitionsTab] add failed', err)
         loading.error('Failed to add')
       } finally {
         if (addBtn.isAlive) addBtn.isLoading = false
@@ -119,12 +144,65 @@ export function createDefinitionsTab({ listApi, initialItems, categoryMap }) {
     return children
   }
 
+  /**
+   * Build the grouped content for the Sub Categories tab.
+   * Groups sub category items by their parent category (ProjectTypes), calling
+   * buildTabContent per parent so add/disable/enable logic is not duplicated.
+   * Inactive parents that still have sub categories are shown with a visual note
+   * so orphaned sub categories are never hidden from admins.
+   */
+  function buildSubCategoriesContent(allItems) {
+    const parentItems = allItems.filter(i => i.Title === 'ProjectTypes')
+    const subByParent = groupSubCategoriesByParent(allItems)
+
+    // Render active ProjectTypes + any parent that has sub categories (even if disabled)
+    const parentValuesToRender = new Set()
+    for (const item of parentItems) parentValuesToRender.add(item.Value)
+    for (const key of subByParent.keys()) parentValuesToRender.add(key)
+
+    const result = []
+
+    for (const parentValue of parentValuesToRender) {
+      const parentItem = parentItems.find(i => i.Value === parentValue)
+      const isParentActive = parentItem && (parentItem.IsActive === true || parentItem.IsActive === 'true')
+      const parentSubItems = subByParent.get(parentValue) || []
+
+      // Skip inactive parents with no sub categories -- nothing to show or add
+      if (!isParentActive && parentSubItems.length === 0) continue
+
+      const headingText = isParentActive ? parentValue : `${parentValue} (category disabled)`
+      const headingClass = isParentActive
+        ? 'app-admin-subcategory-parent-heading'
+        : 'app-admin-subcategory-parent-heading app-admin-subcategory-parent-heading--inactive'
+
+      result.push(
+        new Container([
+          new Text(headingText, { type: 'h4', class: headingClass }),
+          ...buildTabContent(
+            'SubCategories',
+            'Sub Category',
+            parentSubItems,
+            (value) => ({ Title: 'SubCategories', Value: value, IsActive: 'true', ParentValue: parentValue }),
+          ),
+        ], { class: 'app-admin-subcategory-group' }),
+      )
+    }
+
+    if (result.length === 0) {
+      result.push(new Text('No categories defined yet.', { type: 'p', class: 'app-admin-empty-note' }))
+    }
+    return result
+  }
+
   async function refreshAll() {
     const allItems = await listApi.getItems()
     const grouped = groupByCategory(allItems)
     for (const [categoryKey, displayName] of categoryMap) {
       const container = tabContentRefs.get(categoryKey)
-      if (container && container.isAlive) {
+      if (!container || !container.isAlive) continue
+      if (categoryKey === 'SubCategories') {
+        container.children = buildSubCategoriesContent(allItems)
+      } else {
         container.children = buildTabContent(categoryKey, displayName, grouped.get(categoryKey))
       }
     }
@@ -133,8 +211,12 @@ export function createDefinitionsTab({ listApi, initialItems, categoryMap }) {
   const initialGrouped = groupByCategory(initialItems)
 
   const tabs = categoryMap.map(([categoryKey, displayName]) => {
+    const contentChildren = categoryKey === 'SubCategories'
+      ? buildSubCategoriesContent(initialItems)
+      : buildTabContent(categoryKey, displayName, initialGrouped.get(categoryKey))
+
     const content = new Container(
-      buildTabContent(categoryKey, displayName, initialGrouped.get(categoryKey)),
+      contentChildren,
       { class: 'app-admin-tab-content' },
     )
     tabContentRefs.set(categoryKey, content)

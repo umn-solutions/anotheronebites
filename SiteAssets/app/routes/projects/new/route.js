@@ -24,6 +24,7 @@ import {
 	LIST_ALLOCATIONS,
 	GDPR_CLASSIFICATIONS,
 	ACCESS_LEVELS,
+	PROJECT_STATUS_COMPLETED,
 } from "../../../utils/constants.js";
 
 import { getAppSiteApi } from "../../../utils/app-state.js";
@@ -39,11 +40,13 @@ import {
 	optionToUserIdentity,
 	userIdentityToOption,
 	comboValue,
+	buildSubCategoryChildren,
+	bindSubCategoryToCategory,
 } from "../../../utils/form-helpers.js";
 
 import { generateStructuredId } from '../../../utils/id-generator.js';
-import { loadDefinitions } from '../../../utils/definitions.js';
-import { loadScopes, getScopeOptions } from '../../../utils/scopes.js';
+import { loadDefinitions, getSubCategoryOptions } from '../../../utils/definitions.js';
+import { loadScopes, getScopeOptions, getP4PMemberOptions, isP4PMember, getDefaultUserScope } from '../../../utils/scopes.js';
 
 export default defineRoute(async (config) => {
 	config.setRouteTitle("Create Project");
@@ -56,10 +59,9 @@ export default defineRoute(async (config) => {
 
 	const siteApi = getAppSiteApi();
 	const user = new CurrentUser();
-	const [defs, scopeItems, pmGroupMembers, delegations] = await Promise.all([
+	const [defs, scopeItems, delegations] = await Promise.all([
 		loadDefinitions(siteApi),
 		loadScopes(siteApi),
-		siteApi.getGroupUsers('ProjectManagers'),
 		fetchAllDelegations(siteApi),
 	]);
 	const umbrellaCtx = {
@@ -70,14 +72,12 @@ export default defineRoute(async (config) => {
 		userScopes: deriveUserScopes(scopeItems, user.get('email')),
 		excludeUuid: undefined,
 	};
-	const pmMemberOptions = pmGroupMembers.map(m => ({
-		label: m.Title,
-		value: { email: m.Email, displayName: m.Title },
-	}));
+	// PM Members picker options come from the P4P scope Members (allocation pool).
+	const pmMemberOptions = getP4PMemberOptions(scopeItems);
 	const projectTypes = defs.get('ProjectTypes');
 	const techProjects = defs.get('TechProjects');
 	const techPhases = defs.get('TechPhases');
-	const projectStatuses = defs.get('ProjectStatuses');
+	const projectStatuses = defs.get('ProjectStatuses').filter(s => s !== PROJECT_STATUS_COMPLETED);
 	const businessLines = defs.get('BusinessLines');
 	const pmScopeOptions = getScopeOptions(scopeItems);
 
@@ -110,6 +110,10 @@ export default defineRoute(async (config) => {
 
 	const techFieldsContainer = new Container([], { class: "app-tech-fields" });
 
+	// Sub Category field (conditional on selected category having sub categories)
+	const subCategoryField = new FormField({ value: "" });
+	const subCategoryContainer = new Container([], { class: "app-subcategory-field" });
+
 	const projectTypeField = new FormField({ value: "" });
 	projectTypeField.subscribe((val) => {
 		if (val?.value === "Tech") {
@@ -117,6 +121,16 @@ export default defineRoute(async (config) => {
 		} else {
 			techFieldsContainer.children = [];
 		}
+	});
+
+	// Sub category kept in sync with category. initialParent='' because the wizard
+	// starts empty; the guard prevents render-time re-fires from clearing anything.
+	bindSubCategoryToCategory({
+		categoryField: projectTypeField,
+		subCategoryField,
+		container: subCategoryContainer,
+		subCategoryMap: defs.subCategoryMap,
+		initialParent: '',
 	});
 
 	// Step 3 -- Governance fields
@@ -128,7 +142,9 @@ export default defineRoute(async (config) => {
 	// Default to "In Progress" at construction so the step-3 Status ComboBox shows
 	// it selected on first render (a value set later, post-render, won't re-sync).
 	const statusField = new FormField({ value: { label: 'In Progress', value: 'In Progress' } });
-	const pmScopeField = new FormField({ value: "" });
+	// Auto-fill pmScope with the user's earliest scope (by list Id).
+	// A value set after render does not re-sync the ComboBox, so it must be set here.
+	const pmScopeField = new FormField({ value: getDefaultUserScope(scopeItems, user.get('email')) || "" });
 	const allocationField = new FormField({ value: 0 });
 
 	// -- Components --
@@ -136,7 +152,7 @@ export default defineRoute(async (config) => {
 	const projectTypeCombo = new ComboBox(projectTypeField, projectTypes, {
 		allowFiltering: false,
 		allowCreate: true,
-		placeholder: "Select project type",
+		placeholder: "Select category",
 	});
 
 	const techProjectCombo = new ComboBox(techProjectField, techProjects, {
@@ -277,7 +293,8 @@ export default defineRoute(async (config) => {
 				new Container([
 					new Text('Classification', { type: 'h2', class: 'app-step2-card__heading' }),
 				], { class: 'app-step2-card__heading-row' }),
-				createLabeledField("Project type", projectTypeCombo),
+				createLabeledField("Category", projectTypeCombo),
+				subCategoryContainer,
 				createLabeledField(
 					"Access level",
 					new ComboBox(accessLevelField, ACCESS_LEVELS, {
@@ -353,7 +370,8 @@ export default defineRoute(async (config) => {
 				new Container([
 					new Text('Classification', { type: 'h2', class: 'app-step2-card__heading' }),
 				], { class: 'app-step2-card__heading-row' }),
-				createLabeledField("Project type", projectTypeCombo),
+				createLabeledField("Category", projectTypeCombo),
+				subCategoryContainer,
 				techFieldsContainer,
 			], { class: 'app-step2-card app-form-section' }),
 
@@ -539,9 +557,8 @@ export default defineRoute(async (config) => {
 	// Step 4: Capacity (existing logic)
 	// -------------------------------------------------------------------------
 
-	const isPmGroupMember = pmGroupMembers.some(
-		m => m.Email.toLowerCase() === user.get('email').toLowerCase()
-	);
+	// Capacity allocation step is available for P4P scope members (allocation pool).
+	const isPmGroupMember = isP4PMember(scopeItems, user.get('email'));
 
 	const pmMembersList = new Container([], { class: "app-staffing-members" });
 	const renderPmMembers = (members) => {
@@ -574,7 +591,7 @@ export default defineRoute(async (config) => {
 						pmMembersList,
 					]),
 				], { class: "app-sections-row" })
-				: new Text("Capacity allocation is available for Project Managers", { type: "p", class: "app-empty-state" }),
+				: new Text("Capacity allocation is available for P4P scope members", { type: "p", class: "app-empty-state" }),
 		], { class: "app-wizard-step-body" }),
 	]);
 
@@ -731,6 +748,7 @@ export default defineRoute(async (config) => {
 			Context: contextField.value,
 			Objectives: objectivesField.value,
 			ProjectType: comboValue(projectTypeField.value),
+			SubCategory: comboValue(subCategoryField.value),
 			StartDate: startDateField.value,
 			ExpectedEndDate: expectedEndDateField.value,
 			BusinessLine: comboValue(businessLineField.value),
@@ -803,5 +821,5 @@ export default defineRoute(async (config) => {
 		step2Footer,
 	], { class: 'app-wizard-page' });
 
-	return [wizardPage];
+	return [loader, wizardPage];
 });

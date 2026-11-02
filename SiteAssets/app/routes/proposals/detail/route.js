@@ -145,9 +145,9 @@ export default defineRoute(async (config) => {
     new Container([
       createLabeledField('Context', new TextArea(contextField)),
     ], { class: 'app-prop-context-area' }),
-    // 2-up: project type + business line
+    // 2-up: category + business line
     new Container([
-      createLabeledField('Project type', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
+      createLabeledField('Category', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true })),
       createLabeledField('Business line', new ComboBox(businessLineField, businessLines, { allowFiltering: true, allowCreate: true })),
     ], { class: 'app-create-fields-2up' }),
     // 2-up: sponsor + pm scope

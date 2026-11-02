@@ -6,15 +6,6 @@
    ========================================================================== */
 
 /* ==========================================================================
-   Record header tab-row override: hides the default TabGroup panel so the
-   body grid renders the content independently below the header.
-   ========================================================================== */
-
-.app-record-header > .nofbiz__tabgroup > :last-child {
-  display: none;
-}
-
-/* ==========================================================================
    Detail body grid: 280px sidebar + 1fr content, 24px gap, 24px 32px padding
    ========================================================================== */
 
