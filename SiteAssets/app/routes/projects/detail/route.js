@@ -15,6 +15,7 @@ import { statusClass } from '../../../utils/project-card.js'
 import { resolveEffectiveRole, filterProjectsByAccess, fetchAllDelegations, deriveUserScopes, canPerformAction, canDeleteProject } from '../../../utils/access-control.js'
 import { createUmbrellaPicker, seedUmbrellaCurrent } from '../../../utils/umbrella-picker.js'
 import { buildTreeData, renderTreeViz } from '../../../utils/tree-viz.js'
+import { toIdentityList } from '../../../utils/form-helpers.js'
 
 export default defineRoute(async (config) => {
   /**
@@ -364,8 +365,15 @@ export default defineRoute(async (config) => {
     const rows = []
     const pmName = resolveDisplayName(proj.ProjectManager)
     if (pmName) rows.push(personRow(pmName, 'Project manager', true))
-    const sponsorName = resolveDisplayName(proj.Sponsor)
-    if (sponsorName) rows.push(personRow(sponsorName, 'Sponsor', false))
+    // A1: P4P PM row — only shown when set (Contributing projects)
+    const p4pPmName = resolveDisplayName(proj.P4PPM)
+    if (p4pPmName) rows.push(personRow(p4pPmName, 'P4P PM', false))
+    // A2: Sponsor is now a UserIdentity[] (toIdentityList handles legacy single objects)
+    const sponsors = toIdentityList(proj.Sponsor)
+    sponsors.forEach(s => {
+      const name = resolveDisplayName(s)
+      if (name) rows.push(personRow(name, 'Sponsor', false))
+    })
     const stakeholders = Array.isArray(proj.Stakeholders) ? proj.Stakeholders : []
     stakeholders.forEach(s => {
       const name = resolveDisplayName(s)

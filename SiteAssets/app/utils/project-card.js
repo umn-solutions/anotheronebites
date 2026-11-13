@@ -27,30 +27,46 @@ function initials(name) {
  * Shared card shell used by all three factories.
  *
  * Layout:
- *   Row 1  — title (left) + status badge (right)
+ *   Row 1  — left stack [umbrella overline (optional), title] + right: status badge (flex-shrink: 0)
  *   Row 2  — PM display name
  *   divider
  *   context — CSS-clamped, 2-line ellipsis
  *   divider
- *   Row 3  — two colored pills: entry-type pill (always) + project-type pill (when non-empty)
+ *   Row 3  — colored pills: entry-type (always) + project-type (when non-empty) + scope (when non-empty)
  *
  * @param {object} opts
  * @param {string}   opts.title
  * @param {string}   [opts.status]
  * @param {string}   [opts.pm]          PM or sponsor display name
  * @param {string}   [opts.description] Context text
- * @param {string}   [opts.type]        ProjectType / BusinessLine / etc. — shown as second pill when non-empty
+ * @param {string}   [opts.type]        ProjectType / BusinessLine — shown as second pill when non-empty
  * @param {string}   opts.entryType     Entry category label shown in first pill ("Project" / "Program" / "Proposal")
  * @param {string}   opts.entryClass    CSS modifier for the entry pill (e.g. "app-result-card__pill--project")
+ * @param {string}   [opts.umbrella]    Umbrella program/project name shown as overline above the title
+ * @param {string}   [opts.pmScope]     PM scope name shown as scope pill when non-empty
  * @param {string}   extraClass         Additional CSS class on the card root
  * @param {Function} onClick
  */
-function createResultCard({ title, status, pm, description, type, entryType, entryClass }, extraClass, onClick) {
+function createResultCard({ title, status, pm, description, type, entryType, entryClass, umbrella, pmScope }, extraClass, onClick) {
 	const pmName = pm || "";
+
+	// Left stack: optional umbrella overline above the title
+	const titleStackChildren = [];
+	if (umbrella) {
+		titleStackChildren.push(
+			new Text(umbrella, { type: "span", class: "app-result-card__umbrella" }),
+		);
+	}
+	titleStackChildren.push(
+		new Text(title, { type: "h3", class: "app-result-card__title" }),
+	);
+	const titleStack = new Container(titleStackChildren, {
+		class: "app-result-card__title-stack",
+	});
 
 	const headerRow = new Container(
 		[
-			new Text(title, { type: "h3", class: "app-result-card__title" }),
+			titleStack,
 			status
 				? new Text(status, { type: "span", class: statusClass(status) })
 				: null,
@@ -77,13 +93,18 @@ function createResultCard({ title, status, pm, description, type, entryType, ent
 
 	const divider2 = new Container([], { class: "app-result-card__divider" });
 
-	// Footer: two colored pills — entry-type pill (always) + project-type pill (when non-empty).
+	// Footer pills: entry-type (always) + project-type (when non-empty) + scope (when non-empty)
 	const footerChildren = [
 		new Text(entryType, { type: "span", class: "app-result-card__pill " + entryClass }),
 	];
 	if (type) {
 		footerChildren.push(
 			new Text(type, { type: "span", class: "app-result-card__pill app-result-card__pill--type" }),
+		);
+	}
+	if (pmScope) {
+		footerChildren.push(
+			new Text(pmScope, { type: "span", class: "app-result-card__pill app-result-card__pill--scope" }),
 		);
 	}
 	const footerRow = new Container(footerChildren, {
@@ -129,6 +150,8 @@ export function createProjectCard(project) {
 			type: project.ProjectType || "",
 			entryType: "Project",
 			entryClass: "app-result-card__pill--project",
+			umbrella: project.UmbrellaProgram || "",
+			pmScope: project.PMScope || "",
 		},
 		"app-result-card--project",
 		() => Router.navigateTo("projects/detail", { query: { uuid: project.UUID } }),
@@ -145,6 +168,8 @@ export function createProgramCard(program) {
 			type: "",
 			entryType: "Program",
 			entryClass: "app-result-card__pill--program",
+			umbrella: program.UmbrellaProgram || "",
+			pmScope: program.PMScope || "",
 		},
 		"app-result-card--program",
 		() => Router.navigateTo("programs/detail", { query: { uuid: program.UUID } }),
@@ -161,6 +186,8 @@ export function createProposalCard(proposal) {
 			type: proposal.ProjectType || proposal.BusinessLine || "",
 			entryType: "Proposal",
 			entryClass: "app-result-card__pill--proposal",
+			umbrella: "",
+			pmScope: proposal.PMScope || "",
 		},
 		"app-result-card--proposal",
 		() => Router.navigateTo("proposals/detail", { query: { uuid: proposal.UUID } }),

@@ -2,6 +2,24 @@ import { Container, FieldLabel, Text, Button, TextInput, PeoplePicker, ComboBox,
 import { getSubCategoryOptions } from './definitions.js'
 
 /**
+ * Normalize a Sponsor-style project field value into a UserIdentity array.
+ * Handles: array (UserIdentity[]), single legacy object ({email, displayName}), or empty.
+ * Legacy rows may store a single object; this ensures they are always wrapped in an array.
+ * @param {*} raw - Value as parsed by ListApi (auto-parsed from JSON)
+ * @returns {{ email: string, displayName: string }[]}
+ */
+export function toIdentityList(raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) {
+    return raw.filter(item => item && item.email)
+  }
+  if (typeof raw === 'object' && raw.email) {
+    return [{ email: raw.email, displayName: raw.displayName || '' }]
+  }
+  return []
+}
+
+/**
  * Wraps a FieldLabel around an input component.
  * FieldLabel natively handles label-to-input association, so no Container needed.
  * @param {string} labelText - Display label

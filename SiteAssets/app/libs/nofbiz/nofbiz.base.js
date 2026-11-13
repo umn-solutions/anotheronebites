@@ -502,17 +502,28 @@ class SystemError extends Error {
         return `${this._name}: ${this.message} --- stack trace --- ${this.stack}${causeStr}`;
     }
     toJSON() {
-        return JSON.stringify({
+        const result = {
             name: this.name,
             message: this.message,
-            timestamp: this.timestamp,
-            stack: this.stack,
-            cause: this.cause instanceof Error ? {
-                name: this.cause.name,
-                message: this.cause.message,
-                stack: this.cause.stack
-            } : this.cause != null ? String(this.cause) : undefined
-        }, null, 2);
+            timestamp: this.timestamp.toISOString(),
+            breaksFlow: this.breaksFlow,
+            stack: this.stack
+        };
+        const serializedCause = this._serializeCause(this.cause);
+        if (serializedCause !== undefined) result.cause = serializedCause;
+        return result;
+    }
+    _serializeCause(cause) {
+        if (cause == null) return undefined;
+        if (cause instanceof SystemError) return cause.toJSON();
+        if (cause instanceof Error) {
+            return {
+                name: cause.name,
+                message: cause.message,
+                stack: cause.stack
+            };
+        }
+        return String(cause);
     }
 }
 
@@ -1151,6 +1162,7 @@ class Modal extends Container {
         this.backdrop = props?.backdrop ?? true;
         this._isOpen = false;
         this.closeOnFocusLoss = props?.closeOnFocusLoss ?? true;
+        this._closeOnEscape = props?.closeOnEscape ?? true;
         this._onCloseHandler = props?.onCloseHandler || (() => {});
         this._onOpenHandler = props?.onOpenHandler || (() => {});
     }
@@ -1207,6 +1219,7 @@ class Modal extends Container {
         });
     }
     _onEscapeKeyListener() {
+        if (!this._closeOnEscape) return;
         this._addManagedListener("keydown", e => {
             if (e.originalEvent?.key === "Escape") {
                 this.close();
@@ -2562,9 +2575,93 @@ function parseFieldValues(item) {
     return result;
 }
 
-var _CurrentUser_instances, _a$3, _CurrentUser_instance, _CurrentUser_initPromise, _CurrentUser_data, _CurrentUser_group, _CurrentUser_initialized, _CurrentUser_runInitialize, _CurrentUser_resolveGroup, _CurrentUser_assertInitialized;
+function runtimeEventName(className) {
+    return className.toLowerCase();
+}
+
+class RuntimeEvent extends Event {
+    constructor(eventTarget, options) {
+        const eventType = runtimeEventName(new.target.name);
+        super(eventType, {
+            bubbles: options?.bubbles ?? true,
+            cancelable: options?.cancelable ?? true
+        });
+        this._target = eventTarget;
+    }
+    static _createListener(eventName, callback, target, options = {
+        once: false
+    }) {
+        const wrapperFn = e => callback(e);
+        target.addEventListener(eventName, wrapperFn, options);
+        return () => target.removeEventListener(eventName, wrapperFn);
+    }
+    dispatch() {
+        return this._target.dispatchEvent(this);
+    }
+    get target() {
+        return this._target;
+    }
+}
+
+var _a$4, _InvalidUserEvent_reason, _InvalidUserEvent_lastUnhandled;
+
+class InvalidUserEvent extends RuntimeEvent {
+    constructor(reason) {
+        super(window, {
+            bubbles: false,
+            cancelable: true
+        });
+        _InvalidUserEvent_reason.set(this, void 0);
+        __classPrivateFieldSet(this, _InvalidUserEvent_reason, reason, "f");
+    }
+    dispatch() {
+        const result = super.dispatch();
+        if (result) {
+            __classPrivateFieldSet(_a$4, _a$4, {
+                reason: __classPrivateFieldGet(this, _InvalidUserEvent_reason, "f")
+            }, "f", _InvalidUserEvent_lastUnhandled);
+        } else {
+            __classPrivateFieldSet(_a$4, _a$4, null, "f", _InvalidUserEvent_lastUnhandled);
+        }
+        return result;
+    }
+    static get lastUnhandled() {
+        return __classPrivateFieldGet(_a$4, _a$4, "f", _InvalidUserEvent_lastUnhandled);
+    }
+    static clearLastUnhandled() {
+        __classPrivateFieldSet(_a$4, _a$4, null, "f", _InvalidUserEvent_lastUnhandled);
+    }
+    static listener(callback, options) {
+        return RuntimeEvent._createListener(runtimeEventName(_a$4.name), callback, window, options);
+    }
+    get reason() {
+        return __classPrivateFieldGet(this, _InvalidUserEvent_reason, "f");
+    }
+}
+
+_a$4 = InvalidUserEvent, _InvalidUserEvent_reason = new WeakMap;
+
+_InvalidUserEvent_lastUnhandled = {
+    value: null
+};
+
+var _CurrentUser_instances, _a$3, _CurrentUser_instance, _CurrentUser_initPromise, _CurrentUser_data, _CurrentUser_group, _CurrentUser_initialized, _CurrentUser_resetState, _CurrentUser_runInitialize, _CurrentUser_resolveGroup, _CurrentUser_assertInitialized;
 
 class CurrentUser {
+    static get current() {
+        const inst = __classPrivateFieldGet(_a$3, _a$3, "f", _CurrentUser_instance);
+        return inst?.isInitialized ? inst : null;
+    }
+    static invalidate(reason) {
+        var _b;
+        console.warn("[CurrentUser.invalidate] CurrentUser invalidated programmatically", {
+            reason: reason
+        });
+        if (__classPrivateFieldGet(_a$3, _a$3, "f", _CurrentUser_instance)) __classPrivateFieldGet(_b = __classPrivateFieldGet(_a$3, _a$3, "f", _CurrentUser_instance), _CurrentUser_instances, "m", _CurrentUser_resetState).call(_b);
+        __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_instance);
+        __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_initPromise);
+        new InvalidUserEvent(reason).dispatch();
+    }
     constructor() {
         _CurrentUser_instances.add(this);
         _CurrentUser_data.set(this, null);
@@ -2618,7 +2715,11 @@ class CurrentUser {
 }
 
 _a$3 = CurrentUser, _CurrentUser_data = new WeakMap, _CurrentUser_group = new WeakMap, 
-_CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _CurrentUser_runInitialize = async function _CurrentUser_runInitialize(groupHierarchy, options) {
+_CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _CurrentUser_resetState = function _CurrentUser_resetState() {
+    __classPrivateFieldSet(this, _CurrentUser_initialized, false, "f");
+    __classPrivateFieldSet(this, _CurrentUser_data, null, "f");
+    __classPrivateFieldSet(this, _CurrentUser_group, null, "f");
+}, _CurrentUser_runInitialize = async function _CurrentUser_runInitialize(groupHierarchy, options) {
     try {
         if (options?.targetUser) {
             console.warn("[CurrentUser] targetUser impersonation active -- DEBUG ONLY", {
@@ -2632,16 +2733,25 @@ _CurrentUser_initialized = new WeakMap, _CurrentUser_instances = new WeakSet, _C
         __classPrivateFieldSet(this, _CurrentUser_group, groupHierarchy.length ? await __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_resolveGroup).call(this, groupHierarchy, data, siteApi) : null, "f");
         __classPrivateFieldSet(this, _CurrentUser_initialized, true, "f");
         __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_initPromise);
+        InvalidUserEvent.clearLastUnhandled();
         return this;
     } catch (error) {
+        __classPrivateFieldGet(this, _CurrentUser_instances, "m", _CurrentUser_resetState).call(this);
         __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_instance);
         __classPrivateFieldSet(_a$3, _a$3, null, "f", _CurrentUser_initPromise);
         console.error("[CurrentUser.initialize] initialization failed", error);
-        if (error instanceof SystemError) throw error;
-        const message = error instanceof Error ? error.message : String(error);
-        throw new SystemError("CurrentUserInitError", message, {
+        const systemError = error instanceof SystemError ? error : new SystemError("CurrentUserInitError", error instanceof Error ? error.message : String(error), {
             cause: error
         });
+        const event = new InvalidUserEvent(systemError);
+        const handled = !event.dispatch();
+        if (handled) {
+            throw new SystemError("CurrentUserInitError", systemError.message, {
+                cause: systemError,
+                breaksFlow: false
+            });
+        }
+        throw systemError;
     }
 }, _CurrentUser_resolveGroup = async function _CurrentUser_resolveGroup(hierarchy, data, siteApi) {
     const groupUnion = new Map;
@@ -4779,34 +4889,6 @@ class Image extends HTMDElement {
     }
 }
 
-function runtimeEventName(className) {
-    return className.toLowerCase();
-}
-
-class RuntimeEvent extends Event {
-    constructor(eventTarget, options) {
-        const eventType = runtimeEventName(new.target.name);
-        super(eventType, {
-            bubbles: options?.bubbles ?? true,
-            cancelable: options?.cancelable ?? true
-        });
-        this._target = eventTarget;
-    }
-    static _createListener(eventName, callback, target, options = {
-        once: false
-    }) {
-        const wrapperFn = e => callback(e);
-        target.addEventListener(eventName, wrapperFn, options);
-        return () => target.removeEventListener(eventName, wrapperFn);
-    }
-    dispatch() {
-        return this._target.dispatchEvent(this);
-    }
-    get target() {
-        return this._target;
-    }
-}
-
 var _NavigationEvent_from, _NavigationEvent_to, _NavigationEvent_query;
 
 class NavigationEvent extends RuntimeEvent {
@@ -4849,50 +4931,91 @@ async function copyToClipboard(text) {
 }
 
 class BreakingErrorDialog {
+    static get isShowing() {
+        return BreakingErrorDialog._isShowing;
+    }
     constructor(error) {
+        const copyButton = new Button("Copy Error", {
+            onClickHandler: async () => {
+                const clipboardData = this._generateClipboardData(error);
+                console.info("[BreakingErrorDialog] error report:", error.toJSON());
+                const success = await copyToClipboard(clipboardData);
+                if (success) {
+                    copyButton.instance?.text("Copied!");
+                } else {
+                    console.warn("[BreakingErrorDialog] clipboard write failed; showing inline fallback for manual copy");
+                    this._showClipboardFallback(clipboardData);
+                }
+            },
+            variant: "secondary"
+        });
         this._dialog = new Dialog({
             variant: "error",
             title: error.name,
             class: "error-dialog",
             containerSelector: "body",
             closeOnFocusLoss: false,
-            content: [ new Text(error.message), new Text(error.stack, {
+            closeOnEscape: false,
+            content: [ new Text(error.message), new Text(error.stack ?? "(no stack trace available)", {
                 class: "error-dialog__stack-trace"
             }), new Text("If this error persists, please copy the error message and send it to the support team.") ],
-            footer: [ new Button("Copy Error", {
+            footer: [ copyButton, new Button("Reload Page", {
                 onClickHandler: () => {
-                    console.log("=== THE FOLLOWING WAS COPIED TO CLIPBOARD ===");
-                    console.log(error.toJSON());
-                    copyToClipboard(this._generateClipboardData(error));
+                    location.href = location.pathname + location.search;
                 },
-                variant: "secondary"
-            }), new Button("Reload Page", {
-                onClickHandler: () => location.reload(),
                 variant: "danger"
             }) ]
         });
     }
-    _generateClipboardData(error) {
-        let user;
-        try {
-            user = new CurrentUser;
-        } catch (e) {
-            console.error("[BreakingErrorDialog._generateClipboardData] failed to load user data", e);
+    _showClipboardFallback(data) {
+        const textarea = document.createElement("textarea");
+        textarea.value = data;
+        textarea.setAttribute("readonly", "");
+        textarea.style.cssText = "width:100%;height:8em;font-family:monospace;font-size:0.75em;resize:vertical;box-sizing:border-box;";
+        const contentArea = this._dialog.instance?.[0]?.querySelector(`.${this._dialog.topClassBEM}__content`);
+        if (contentArea) {
+            contentArea.appendChild(textarea);
+            textarea.select();
+        } else {
+            console.warn("[BreakingErrorDialog._showClipboardFallback] content area not found; data logged above");
         }
+    }
+    _safeRead(getter, label) {
+        try {
+            return getter();
+        } catch (e) {
+            console.warn(`[BreakingErrorDialog] could not read user.${label}`, e);
+            return null;
+        }
+    }
+    _generateClipboardData(error) {
+        const rawUser = CurrentUser.current;
+        const user = rawUser?.isInitialized ? {
+            loginName: this._safeRead(() => rawUser.get("loginName"), "loginName"),
+            displayName: this._safeRead(() => rawUser.get("displayName"), "displayName"),
+            email: this._safeRead(() => rawUser.get("email"), "email"),
+            employeeId: this._safeRead(() => rawUser.get("employeeId"), "employeeId"),
+            siteUserId: this._safeRead(() => rawUser.get("siteUserId"), "siteUserId"),
+            jobTitle: this._safeRead(() => rawUser.get("jobTitle"), "jobTitle"),
+            accessLevel: this._safeRead(() => rawUser.accessLevel, "accessLevel"),
+            groupTitle: this._safeRead(() => rawUser.groupTitle, "groupTitle")
+        } : null;
         return JSON.stringify({
             error: error.toJSON(),
-            user: user?.isInitialized ? {
-                loginName: user.get("loginName"),
-                displayName: user.get("displayName"),
-                email: user.get("email")
-            } : null
-        });
+            user: user,
+            timestamp: (new Date).toISOString(),
+            url: location.href,
+            userAgent: navigator.userAgent
+        }, null, 2);
     }
     render() {
+        BreakingErrorDialog._isShowing = true;
         this._dialog.render();
         this._dialog.open();
     }
 }
+
+BreakingErrorDialog._isShowing = false;
 
 class ErrorBoundary {
     constructor(props) {
@@ -4902,10 +5025,21 @@ class ErrorBoundary {
         this._name = props?.name || generateRuntimeUID(`error-boundary`);
         this._boundErrorHandler = e => this._onErrorEventHandler(e);
         this._boundRejectionHandler = e => this._onAsyncErrorEventHandler(e);
+        this._boundPageShowHandler = e => {
+            const pse = e;
+            if (pse.persisted && BreakingErrorDialog.isShowing) {
+                location.href = location.pathname + location.search;
+            }
+        };
         this._addEventListeners();
+        window.addEventListener("pageshow", this._boundPageShowHandler);
     }
-    async _displayError(error) {
+    _displayError(error) {
         if (error.breaksFlow) {
+            if (BreakingErrorDialog.isShowing) {
+                console.error("[ErrorBoundary._displayError] breaking error suppressed (dialog already visible)", error);
+                return;
+            }
             console.error("[ErrorBoundary._displayError] breaking error -- rendering BreakingErrorDialog", error);
             new BreakingErrorDialog(error).render();
         } else {
@@ -4968,6 +5102,7 @@ class ErrorBoundary {
     dispose() {
         this._targetElement.removeEventListener("error", this._boundErrorHandler);
         this._targetElement.removeEventListener("unhandledrejection", this._boundRejectionHandler);
+        window.removeEventListener("pageshow", this._boundPageShowHandler);
     }
 }
 
@@ -5062,7 +5197,7 @@ class Route extends View {
     }
 }
 
-var _Router_instances, _a$1, _Router_containerSelector, _Router_routesMap, _Router_routePaths, _Router_errorBoundary, _Router_navigationId, _Router_lastPath, _Router_notFoundRoute, _Router_unauthorizedRoute, _Router_navigationGuard, _Router_beforeUnloadHandler, _Router_routerReady, _Router_guardInFlight, _Router_checkSingletonInstance, _Router_createUrls;
+var _Router_instances, _a$1, _Router_containerSelector, _Router_routesMap, _Router_routePaths, _Router_errorBoundary, _Router_navigationId, _Router_lastPath, _Router_notFoundRoute, _Router_unauthorizedRoute, _Router_invalidUserRoute, _Router_invalidUserReason, _Router_navigationGuard, _Router_beforeUnloadHandler, _Router_routerReady, _Router_guardInFlight, _Router_pendingTerminalState, _Router_checkSingletonInstance, _Router_createUrls;
 
 class Router {
     static navigateTo(path, options) {
@@ -5077,17 +5212,21 @@ class Router {
         _a$1._runtimeInstance._popLevel(x);
     }
     static unauthorized() {
-        var _b, _c;
         __classPrivateFieldGet(_a$1, _a$1, "m", _Router_checkSingletonInstance).call(_a$1);
-        _a$1.clearNavigationGuard();
+        _a$1._runtimeInstance._applyTerminalState(__classPrivateFieldGet(_a$1._runtimeInstance, _Router_unauthorizedRoute, "f"));
+    }
+    static invalidUser(reason) {
+        __classPrivateFieldGet(_a$1, _a$1, "m", _Router_checkSingletonInstance).call(_a$1);
         const instance = _a$1._runtimeInstance;
-        const navId = __classPrivateFieldSet(_b = instance, _Router_navigationId, (_c = __classPrivateFieldGet(_b, _Router_navigationId, "f"), 
-        ++_c), "f");
-        const outgoing = __classPrivateFieldGet(instance, _Router_lastPath, "f") ? __classPrivateFieldGet(instance, _Router_routesMap, "f").get(__classPrivateFieldGet(instance, _Router_lastPath, "f")) : undefined;
-        if (outgoing?.isAlive) outgoing.remove();
-        instance._cleanup();
-        if (navId !== __classPrivateFieldGet(instance, _Router_navigationId, "f")) return;
-        instance._applyRoute(__classPrivateFieldGet(instance, _Router_unauthorizedRoute, "f"));
+        if (!__classPrivateFieldGet(instance, _Router_routerReady, "f")) {
+            __classPrivateFieldSet(instance, _Router_pendingTerminalState, () => {
+                __classPrivateFieldSet(instance, _Router_invalidUserReason, reason, "f");
+                instance._applyTerminalState(__classPrivateFieldGet(instance, _Router_invalidUserRoute, "f"));
+            }, "f");
+            return;
+        }
+        __classPrivateFieldSet(instance, _Router_invalidUserReason, reason, "f");
+        instance._applyTerminalState(__classPrivateFieldGet(instance, _Router_invalidUserRoute, "f"));
     }
     static setNavigationGuard(guardFn) {
         __classPrivateFieldGet(_a$1, _a$1, "m", _Router_checkSingletonInstance).call(_a$1);
@@ -5139,10 +5278,13 @@ class Router {
         _Router_lastPath.set(this, void 0);
         _Router_notFoundRoute.set(this, void 0);
         _Router_unauthorizedRoute.set(this, void 0);
+        _Router_invalidUserRoute.set(this, void 0);
+        _Router_invalidUserReason.set(this, void 0);
         _Router_navigationGuard.set(this, void 0);
         _Router_beforeUnloadHandler.set(this, void 0);
         _Router_routerReady.set(this, false);
         _Router_guardInFlight.set(this, false);
+        _Router_pendingTerminalState.set(this, null);
         if (!_a$1._runtimeInstance && routeRelativePaths) {
             __classPrivateFieldSet(this, _Router_containerSelector, props?.containerSelector ?? "#root", "f");
             __classPrivateFieldSet(this, _Router_errorBoundary, props?.enableErrorBoundary === false ? undefined : new ErrorBoundary({
@@ -5151,32 +5293,81 @@ class Router {
             __classPrivateFieldSet(this, _Router_routesMap, new Map, "f");
             __classPrivateFieldSet(this, _Router_routePaths, [ "/", ...routeRelativePaths ], "f");
             _a$1._runtimeInstance = this;
-            this._initialize(props?.notFoundRoute, props?.unauthorizedRoute);
+            if (InvalidUserEvent.lastUnhandled !== null) {
+                const {reason: reason} = InvalidUserEvent.lastUnhandled;
+                InvalidUserEvent.clearLastUnhandled();
+                _a$1.invalidUser(reason);
+            }
+            window.addEventListener(runtimeEventName(InvalidUserEvent.name), e => {
+                if (!(e instanceof InvalidUserEvent)) return;
+                e.preventDefault();
+                _a$1.invalidUser(e.reason);
+            });
+            this._initialize(props?.notFoundRoute, props?.unauthorizedRoute, props?.invalidUserRoute);
             this._addPopStateEventListeners();
         }
         return _a$1._runtimeInstance;
     }
-    async _initialize(notFoundRoute, unauthorizedRoute) {
-        if (notFoundRoute) {
-            const resolved = await notFoundRoute;
-            resolved.containerSelector = __classPrivateFieldGet(this, _Router_containerSelector, "f");
-            __classPrivateFieldSet(this, _Router_notFoundRoute, resolved, "f");
-        } else {
-            const defaultRoute = this._createDefaultNotFoundRoute();
-            defaultRoute.containerSelector = __classPrivateFieldGet(this, _Router_containerSelector, "f");
-            __classPrivateFieldSet(this, _Router_notFoundRoute, defaultRoute, "f");
-        }
-        if (unauthorizedRoute) {
-            const resolved = await unauthorizedRoute;
-            resolved.containerSelector = __classPrivateFieldGet(this, _Router_containerSelector, "f");
-            __classPrivateFieldSet(this, _Router_unauthorizedRoute, resolved, "f");
-        } else {
-            const defaultRoute = this._createDefaultUnauthorizedRoute();
-            defaultRoute.containerSelector = __classPrivateFieldGet(this, _Router_containerSelector, "f");
-            __classPrivateFieldSet(this, _Router_unauthorizedRoute, defaultRoute, "f");
-        }
+    async _resolveRoute(override, createDefault) {
+        const route = override ? await override : createDefault();
+        route.containerSelector = __classPrivateFieldGet(this, _Router_containerSelector, "f");
+        return route;
+    }
+    async _initialize(notFoundRoute, unauthorizedRoute, invalidUserRoute) {
+        __classPrivateFieldSet(this, _Router_notFoundRoute, await this._resolveRoute(notFoundRoute, () => this._createDefaultNotFoundRoute()), "f");
+        __classPrivateFieldSet(this, _Router_unauthorizedRoute, await this._resolveRoute(unauthorizedRoute, () => this._createDefaultUnauthorizedRoute()), "f");
+        __classPrivateFieldSet(this, _Router_invalidUserRoute, await this._resolveRoute(invalidUserRoute, () => this._createDefaultInvalidUserRoute()), "f");
         __classPrivateFieldSet(this, _Router_routerReady, true, "f");
+        if (__classPrivateFieldGet(this, _Router_pendingTerminalState, "f")) {
+            const pending = __classPrivateFieldGet(this, _Router_pendingTerminalState, "f");
+            __classPrivateFieldSet(this, _Router_pendingTerminalState, null, "f");
+            pending();
+            return;
+        }
         this._refreshCurrentPage();
+    }
+    _applyTerminalState(route) {
+        var _b;
+        if (__classPrivateFieldGet(this, _Router_beforeUnloadHandler, "f")) {
+            window.removeEventListener("beforeunload", __classPrivateFieldGet(this, _Router_beforeUnloadHandler, "f"));
+        }
+        __classPrivateFieldSet(this, _Router_navigationGuard, undefined, "f");
+        __classPrivateFieldSet(this, _Router_beforeUnloadHandler, undefined, "f");
+        const navId = __classPrivateFieldSet(this, _Router_navigationId, (_b = __classPrivateFieldGet(this, _Router_navigationId, "f"), 
+        ++_b), "f");
+        const outgoing = __classPrivateFieldGet(this, _Router_lastPath, "f") ? __classPrivateFieldGet(this, _Router_routesMap, "f").get(__classPrivateFieldGet(this, _Router_lastPath, "f")) : undefined;
+        if (outgoing?.isAlive) outgoing.remove();
+        this._cleanup();
+        if (navId !== __classPrivateFieldGet(this, _Router_navigationId, "f")) return;
+        this._applyRoute(route);
+    }
+    _createStatusPageContent(code, title, description, hint, iconName) {
+        let iconContainer;
+        if (iconName) {
+            try {
+                iconContainer = new Container([ getIcon(iconName) ], {
+                    class: `${LIB_PREFIX}__status-page__icon`
+                });
+            } catch (err) {
+                console.warn("[Router._createStatusPageContent] icon not found", {
+                    iconName: iconName,
+                    err: err
+                });
+            }
+        }
+        return new Container([ ...iconContainer ? [ iconContainer ] : [], ...code ? [ new Text(code, {
+            type: "h1",
+            class: `${LIB_PREFIX}__status-page__code`
+        }) ] : [], new Text(title, {
+            type: "h2",
+            class: `${LIB_PREFIX}__status-page__title`
+        }), new Text(description, {
+            class: `${LIB_PREFIX}__status-page__description`
+        }), ...hint ? [ new Text(hint, {
+            class: `${LIB_PREFIX}__status-page__hint`
+        }) ] : [] ], {
+            class: `${LIB_PREFIX}__status-page`
+        });
     }
     _createDefaultNotFoundRoute() {
         let redirectTimer;
@@ -5186,45 +5377,45 @@ class Router {
                 redirectTimer = undefined;
             }
         };
-        const route = new class NotFoundRoute extends Route {
-            remove() {
-                clearRedirectTimer();
-                super.remove();
-            }
-        }({
+        const route = new Route({
             title: "Page Not Found",
             onRefreshHandler: () => {
                 clearRedirectTimer();
-                route.children = [ new Container([ new Text("404 - Page Not Found", {
-                    type: "h1"
-                }), new Text(`The path "${_a$1.location}" does not exist.`), new Text("You will be redirected to the home page in 8 seconds.") ], {
-                    class: "not-found"
-                }) ];
+                route.children = [ this._createStatusPageContent("404", "Page Not Found", `The path "${_a$1.location}" does not exist.`, "You will be redirected to the home page in 8 seconds.", "question-line") ];
                 redirectTimer = setTimeout(() => {
                     _a$1.navigateTo("/");
                 }, 8e3);
             }
         });
+        route.registerCleanupRunner(clearRedirectTimer);
         return route;
     }
     _createDefaultUnauthorizedRoute() {
         const route = new Route({
             title: "Access Denied",
             onRefreshHandler: () => {
-                route.children = [ new Container([ new Text("403 - Access Denied", {
-                    type: "h1"
-                }), new Text("You do not have permission to access this application.") ], {
-                    class: "unauthorized"
-                }) ];
+                route.children = [ this._createStatusPageContent("403", "Access Denied", "You do not have permission to access this application.", undefined, "lock-line") ];
+            }
+        });
+        return route;
+    }
+    _createDefaultInvalidUserRoute() {
+        const route = new Route({
+            title: "User Identification Error",
+            onRefreshHandler: () => {
+                const r = __classPrivateFieldGet(this, _Router_invalidUserReason, "f");
+                const reasonText = r ? typeof r === "string" ? r : r.message : undefined;
+                route.children = [ this._createStatusPageContent(undefined, "User Could Not Be Identified", "Your user account could not be identified. Please reload the page or contact your system administrator.", reasonText, "user-unfollow-line") ];
             }
         });
         return route;
     }
     [(_Router_containerSelector = new WeakMap, _Router_routesMap = new WeakMap, _Router_routePaths = new WeakMap, 
     _Router_errorBoundary = new WeakMap, _Router_navigationId = new WeakMap, _Router_lastPath = new WeakMap, 
-    _Router_notFoundRoute = new WeakMap, _Router_unauthorizedRoute = new WeakMap, _Router_navigationGuard = new WeakMap, 
+    _Router_notFoundRoute = new WeakMap, _Router_unauthorizedRoute = new WeakMap, _Router_invalidUserRoute = new WeakMap, 
+    _Router_invalidUserReason = new WeakMap, _Router_navigationGuard = new WeakMap, 
     _Router_beforeUnloadHandler = new WeakMap, _Router_routerReady = new WeakMap, _Router_guardInFlight = new WeakMap, 
-    _Router_instances = new WeakSet, _Router_checkSingletonInstance = function _Router_checkSingletonInstance() {
+    _Router_pendingTerminalState = new WeakMap, _Router_instances = new WeakSet, _Router_checkSingletonInstance = function _Router_checkSingletonInstance() {
         if (!_a$1._runtimeInstance) throw new SystemError(`InternalError`, `Router is not initialized. Router follows the singleton pattern. Please initialize the router with valid routes at the top of your application`);
     }, Symbol.toStringTag)]() {
         return "Router";
@@ -6060,5 +6251,5 @@ function isHTMDNode(arg) {
     } else return every(arg, isHTMDNode);
 }
 
-export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, dayjs as __dayjs, Fuse as __fuse, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveCanonicalUser, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
+export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, InvalidUserEvent, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, dayjs as __dayjs, Fuse as __fuse, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveCanonicalUser, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
 //# sourceMappingURL=nofbiz.base.js.map

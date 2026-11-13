@@ -70,6 +70,11 @@ export const PROJECT_ACTIONS = {
 // Project lifecycle -- terminal status constants
 export const PROJECT_STATUS_COMPLETED = 'Completed'
 export const PROJECT_STATUS_STOPPED = 'Stopped'
+export const PROJECT_STATUS_PIPELINE = 'Pipeline'
+
+// Query param carrying a proposal UUID into projects/new ("validate proposal" flow).
+// Router.navigateTo('projects/new', { query: { [QUERY_PARAM_PROPOSAL]: uuid } })
+export const QUERY_PARAM_PROPOSAL = 'proposal'
 
 /**
  * Returns true when the project is in the Completed (closed) state.

@@ -101,6 +101,15 @@ export function createCapacityTab({ project, siteApi, uuid, allocations, effecti
     seenEmails.add(email)
   })
 
+  // Include the P4P PM (Contributing projects) as a row, deduped by email.
+  const p4pPmEmailRaw = (project.P4PPMEmail || '').trim().toLowerCase()
+  if (p4pPmEmailRaw && !seenEmails.has(p4pPmEmailRaw)) {
+    const p4pPmIdentity = project.P4PPM
+    const p4pPmName = (p4pPmIdentity && p4pPmIdentity.displayName) ? p4pPmIdentity.displayName : p4pPmEmailRaw
+    pmRows.push({ email: p4pPmEmailRaw, displayName: p4pPmName, role: 'P4P PM' })
+    seenEmails.add(p4pPmEmailRaw)
+  }
+
   // -------------------------------------------------------------------
   // Allocation lookup helpers
   // -------------------------------------------------------------------

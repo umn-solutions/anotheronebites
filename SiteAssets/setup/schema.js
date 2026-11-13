@@ -15,7 +15,7 @@ export const SCHEMA = {
     { title: 'GDPRClassification' },
     { title: 'BusinessLine' },
     { title: 'Product' },
-    { title: 'Sponsor' },
+    { title: 'Sponsor', multiline: true },
     { title: 'Stakeholders', multiline: true },
     { title: 'PMMembers', multiline: true },
     { title: 'PMMembersEmail', multiline: true },
@@ -37,6 +37,8 @@ export const SCHEMA = {
     { title: 'Improvements', multiline: true },
     { title: 'AccessLevel', indexed: true },
     { title: 'PMScope', indexed: true },
+    { title: 'P4PPM' },
+    { title: 'P4PPMEmail', indexed: true },
   ],
 
   Programs: [

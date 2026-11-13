@@ -420,6 +420,11 @@
   transform: translateY(-1px);
 }
 
+/* Status badge in the result card header must never shrink */
+.app-result-card__header .app-status-badge {
+  flex-shrink: 0;
+}
+
 /* Kind-specific left border (colored identifier strip) */
 .app-result-card--project {
   border-left: var(--stroke-thickest) solid var(--app-primary);
@@ -433,12 +438,36 @@
   border-left: var(--stroke-thickest) solid var(--app-border-strong);
 }
 
-/* Header row: title left, status pill right */
+/* Header row: title-stack left (flex: 1), status pill right (flex-shrink: 0) */
 .app-result-card__header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  /* The card is a centered flex column; stretch the header so the umbrella +
+     title stack anchors top-left and the status badge sits top-right. */
+  align-self: stretch;
+  text-align: left;
+}
+
+/* Left stack: umbrella overline + title, owns the available width */
+.app-result-card__title-stack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Umbrella overline: muted, smaller than the title, single-line with ellipsis */
+.app-result-card__umbrella {
+  font-size: var(--font-size-200);
+  line-height: var(--line-height-200);
+  color: var(--app-fg-muted);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-result-card__title {
@@ -447,8 +476,9 @@
   font-weight: var(--font-weight-semibold);
   color: var(--app-fg);
   margin: 0;
-  flex: 1;
-  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* PM row: avatar initials + display name */
@@ -500,6 +530,7 @@
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 
 /* Footer row: flex row holding entry-type pill + project-type pill */
@@ -547,6 +578,12 @@
 .app-result-card__pill--type {
   background: var(--app-status-pipeline-bg);
   color: var(--app-status-pipeline-fg);
+}
+
+/* Scope pill (amber/orange, distinct from green/blue/gray/purple) */
+.app-result-card__pill--scope {
+  background: var(--app-status-on-hold-bg);
+  color: var(--app-status-on-hold-fg);
 }
 
 /* ---------- Empty state (search query with no matches) ---------- */

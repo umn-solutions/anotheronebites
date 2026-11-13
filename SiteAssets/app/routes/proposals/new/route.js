@@ -1,9 +1,9 @@
-import { defineRoute, Container, Text, TextInput, TextArea, ComboBox, Button, FormField, SiteApi, Router, Toast, PeoplePicker, Loader, CurrentUser } from '../../../libs/nofbiz/nofbiz.base.js'
-import { LIST_PROPOSALS } from '../../../utils/constants.js'
-import { createLabeledField, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
+import { defineRoute, Container, Text, TextInput, TextArea, ComboBox, Button, FormField, SiteApi, Router, Toast, Loader, CurrentUser } from '../../../libs/nofbiz/nofbiz.base.js'
+import { LIST_PROPOSALS, PROJECT_STATUS_PIPELINE } from '../../../utils/constants.js'
+import { createLabeledField, comboValue } from '../../../utils/form-helpers.js'
 import { generateStructuredId } from '../../../utils/id-generator.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
-import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
+import { loadScopes, getScopeOptions, getDefaultUserScope } from '../../../utils/scopes.js'
 
 export default defineRoute(async (config) => {
   config.setRouteTitle('Create Proposal')
@@ -17,15 +17,15 @@ export default defineRoute(async (config) => {
   const businessLines = defs.get('BusinessLines')
   const projectStatuses = defs.get('ProjectStatuses')
   const pmScopeOptions = getScopeOptions(scopeItems)
+  const currentUserEmail = new CurrentUser().get('email')
 
   // Form fields
   const titleField = new FormField({ value: '', validatorCallback: (v) => v.length > 0 })
   const contextField = new FormField({ value: '' })
   const projectTypeField = new FormField({ value: '' })
   const businessLineField = new FormField({ value: '' })
-  const sponsorField = new FormField({ value: '' })
-  const pmScopeField = new FormField({ value: '' })
-  const statusField = new FormField({ value: { label: 'In Progress', value: 'In Progress' } })
+  const pmScopeField = new FormField({ value: getDefaultUserScope(scopeItems, currentUserEmail) || '' })
+  const statusField = new FormField({ value: { label: PROJECT_STATUS_PIPELINE, value: PROJECT_STATUS_PIPELINE } })
 
   const loader = new Loader(new Text('Saving...'), { class: 'app-fullpage-loader' })
 
@@ -47,7 +47,6 @@ export default defineRoute(async (config) => {
         Context: contextField.value,
         ProjectType: comboValue(projectTypeField.value),
         BusinessLine: comboValue(businessLineField.value),
-        Sponsor: optionToUserIdentity(sponsorField.value) || '',
         Status: comboValue(statusField.value),
         PMScope: comboValue(pmScopeField.value),
         SubmittedBy: { email: currentUser.get('email'), displayName: currentUser.get('displayName') },
@@ -84,22 +83,19 @@ export default defineRoute(async (config) => {
   const titleLabeled = createLabeledField('Title', new TextInput(titleField, { placeholder: 'e.g. API Gateway Modernization' }), true)
   const contextLabeled = createLabeledField('Context', new TextArea(contextField, { placeholder: 'What is being proposed, and why now?' }))
 
-  // Short selects: 2-up grid (category, business line, sponsor, PM scope)
+  // 2x2 grid: Category, Business line, PM scope, Status
   const shortSelects = new Container([
     createLabeledField('Category', new ComboBox(projectTypeField, projectTypes, { allowFiltering: false, allowCreate: true, placeholder: 'Select...' })),
     createLabeledField('Business line', new ComboBox(businessLineField, businessLines, { allowFiltering: true, allowCreate: true, placeholder: 'Select...' })),
-    createLabeledField('Sponsor', new PeoplePicker(sponsorField, { placeholder: 'Select sponsor' })),
     createLabeledField('PM scope', new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false, placeholder: 'Select PM scope' })),
+    createLabeledField('Status', new ComboBox(statusField, projectStatuses, { allowFiltering: false, placeholder: 'Select status' })),
   ], { class: 'app-create-fields-2up' })
-
-  const statusLabeled = createLabeledField('Status', new ComboBox(statusField, projectStatuses, { allowFiltering: false, placeholder: 'Select status' }))
 
   const sectionCard = new Container([
     sectionHeadingRow,
     titleLabeled,
     contextLabeled,
     shortSelects,
-    statusLabeled,
   ], { class: 'app-create-section' })
 
   // Footer: Cancel left, Create proposal right

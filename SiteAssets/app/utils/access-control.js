@@ -1,6 +1,9 @@
 import { LIST_PROJECT_ACCESS, P4P_SCOPE_TITLE } from './constants.js'
 import { loadScopes } from './scopes.js'
 
+/** Normalise an email string for case-insensitive comparison. */
+const normalizeEmail = e => (e || '').trim().toLowerCase()
+
 // Permission matrix: which effective roles can perform which actions.
 // Closing/reopening a project is NOT in this map -- it uses canCloseProject()
 // because the allowed identities (ADMIN, PM, creator) do not map 1:1 to roles.
@@ -16,7 +19,8 @@ const PERMISSION_MAP = {
  * Priority order (evaluated in strict sequence):
  * 1. ADMIN group -> 'owner'
  * 2. Direct member: PMMembersEmail includes user OR SubmittedByEmail === user
- *    OR ProjectManagerEmail === user (the designated PM owns the project) -> 'owner'
+ *    OR ProjectManagerEmail === user (the designated PM owns the project)
+ *    OR P4PPMEmail === user (the P4P PM on Contributing projects) -> 'owner'
  * 3. Delegation on this project: Contributing -> 'contributing'; Read -> 'reader'
  *    (checked BEFORE AccessLevel blocks so delegation overrides Confidential/Internal)
  * 4. Confidential -> null
@@ -37,14 +41,16 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
   // 1. Admin always gets owner
   if (siteAccessLevel === 'ADMIN') return 'owner'
 
-  // 2. Direct member: PMMembers, SubmittedBy, or the designated Project Manager -> owner
+  // 2. Direct member: PMMembers, SubmittedBy, the designated PM, or the P4P PM -> owner
   const email = (userEmail || '').toLowerCase()
   const pmMemberEmails = (project.PMMembersEmail || '').split(';').map(s => s.trim().toLowerCase()).filter(Boolean)
-  const projectManagerEmail = (project.ProjectManagerEmail || '').trim().toLowerCase()
+  const projectManagerEmail = normalizeEmail(project.ProjectManagerEmail)
+  const p4pPmEmail = normalizeEmail(project.P4PPMEmail)
   if (
     pmMemberEmails.includes(email) ||
     (project.SubmittedByEmail && project.SubmittedByEmail.toLowerCase() === email) ||
-    (projectManagerEmail && projectManagerEmail === email)
+    (projectManagerEmail && projectManagerEmail === email) ||
+    (p4pPmEmail && p4pPmEmail === email)
   ) {
     return 'owner'
   }
@@ -82,9 +88,10 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
  * Determine if the current user may close or reopen a project.
  *
  * Allowed identities: site ADMIN, the designated Project Manager
- * (ProjectManagerEmail), or the project creator (SubmittedByEmail).
+ * (ProjectManagerEmail), the project creator (SubmittedByEmail), or the
+ * P4P PM (P4PPMEmail) on Contributing projects.
  * PM Members who happen to have the 'owner' effective role are NOT
- * allowed to close -- that right is reserved to the three identities above.
+ * allowed to close -- that right is reserved to the four identities above.
  *
  * Reopening is ADMIN-only and must be gated separately by callers
  * (check `siteAccessLevel === 'ADMIN'`).
@@ -97,10 +104,12 @@ export function resolveEffectiveRole(project, userEmail, siteAccessLevel, delega
 export function canCloseProject(project, userEmail, siteAccessLevel) {
   if (siteAccessLevel === 'ADMIN') return true
   const email = (userEmail || '').toLowerCase()
-  const projectManagerEmail = (project.ProjectManagerEmail || '').trim().toLowerCase()
-  const submittedByEmail = (project.SubmittedByEmail || '').trim().toLowerCase()
+  const projectManagerEmail = normalizeEmail(project.ProjectManagerEmail)
+  const submittedByEmail = normalizeEmail(project.SubmittedByEmail)
+  const p4pPmEmail = normalizeEmail(project.P4PPMEmail)
   return (!!projectManagerEmail && projectManagerEmail === email) ||
-    (!!submittedByEmail && submittedByEmail === email)
+    (!!submittedByEmail && submittedByEmail === email) ||
+    (!!p4pPmEmail && p4pPmEmail === email)
 }
 
 /**
@@ -127,6 +136,17 @@ export function canPerformAction(effectiveRole, action) {
   if (!effectiveRole) return false
   const perms = PERMISSION_MAP[effectiveRole]
   return perms ? !!perms[action] : false
+}
+
+/**
+ * Check if the user may validate a proposal into a project (opens the project
+ * wizard pre-populated from the proposal). Allowed: ADMIN and P4P scope members.
+ * @param {'ADMIN'|'USER'|null} siteAccessLevel - User's site group label
+ * @param {Set<string>} userScopes - From deriveUserScopes() / fetchUserScopes()
+ * @returns {boolean}
+ */
+export function canValidateProposal(siteAccessLevel, userScopes = new Set()) {
+  return siteAccessLevel === 'ADMIN' || userScopes.has(P4P_SCOPE_TITLE)
 }
 
 /**

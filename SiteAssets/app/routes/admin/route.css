@@ -246,6 +246,9 @@
 	font-size: var(--font-size-300);
 	font-weight: var(--font-weight-semibold);
 	color: var(--color-fg-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .app-gantt-total-projects {
@@ -303,6 +306,10 @@
 .app-gantt-project-title {
 	font-size: var(--font-size-200);
 	color: var(--color-fg-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
 }
 
 .app-gantt-project-fte {
@@ -398,6 +405,8 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: var(--space-l);
+  min-width: 0;
+  gap: var(--space-sNudge);
 }
 
 .app-scope-name {
@@ -405,6 +414,11 @@
   font-weight: var(--font-weight-semibold);
   color: var(--color-fg-primary);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 
 /* ---------- Responsive ---------- */

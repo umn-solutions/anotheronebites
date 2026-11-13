@@ -77,6 +77,8 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	min-width: 0;
+	overflow: hidden;
 }
 
 .app-prog-meta-cell__value--none {
@@ -119,6 +121,9 @@
 	border-radius: 10000px;
 	padding: 3px 10px;
 	white-space: nowrap;
+	max-width: 200px;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 /* ---------- Program details section: context text ---------- */
@@ -128,6 +133,7 @@
 	line-height: 24px;
 	color: var(--app-fg);
 	margin-bottom: 16px;
+	overflow-wrap: anywhere;
 }
 
 /* ---------- Direct children table ---------- */

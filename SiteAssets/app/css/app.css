@@ -293,6 +293,8 @@ select:focus-visible {
 	display: flex;
 	align-items: center;
 	gap: var(--space-l);
+	flex: 1;
+	min-width: 0;
 }
 
 .app-header__right {
@@ -365,6 +367,8 @@ select:focus-visible {
 	gap: var(--space-sNudge);
 	font-size: var(--font-size-200);
 	color: var(--app-fg-muted);
+	min-width: 0;
+	overflow: hidden;
 }
 
 .app-header__breadcrumb a,
@@ -386,6 +390,10 @@ select:focus-visible {
 
 .app-header__breadcrumb-current {
 	color: var(--app-fg);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
 }
 
 /* ==========================================================================
@@ -416,6 +424,12 @@ select:focus-visible {
 	font-weight: var(--font-weight-semibold);
 	color: var(--app-fg);
 	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+	/* shrink (to truncate) but never grow, so the status pill stays beside the title */
+	flex: 0 1 auto;
 }
 
 /* Tab row: override TabGroup so active = green underline per spec.
@@ -439,6 +453,10 @@ select:focus-visible {
 	border-bottom: var(--stroke-thick) solid transparent;
 	cursor: pointer;
 	transition: color var(--app-transition-fast), border-color var(--app-transition-fast);
+	max-width: 200px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .app-record-header .nofbiz__tabgroup__tab:hover,
@@ -831,6 +849,14 @@ select:focus-visible {
 	color: var(--app-status-proposal-fg);
 }
 
+/* Single-line ellipsis utility — apply to any element that must show one line */
+.app-ellipsis {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
 /* Overline / label text utility */
 .app-overline {
 	font-size: var(--font-size-100);
@@ -1014,9 +1040,11 @@ select:focus-visible {
 	margin-bottom: 0.75rem;
 }
 
-/* Sub Category container -- shares the same bottom-margin rhythm as sibling labeled fields */
-.app-subcategory-field {
-	margin-bottom: 0.75rem;
+/* Sub Category container -- the inner .app-labeled-field already carries the
+   bottom-margin rhythm. When the selected category has no sub categories the
+   container is empty and must collapse entirely (no stray gap in flex/grid cards). */
+.app-subcategory-field:empty {
+	display: none;
 }
 
 .app-labeled-field .nofbiz__fieldlabel__label {
@@ -1192,6 +1220,17 @@ select:focus-visible {
 	font-size: var(--font-size-200);
 	font-weight: var(--font-weight-semibold);
 	color: var(--app-primary-active);
+	max-width: 240px;
+}
+
+/* Truncate long names inside person/target-value pills */
+.app-multi-person-item > .nofbiz__text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+	/* content-sized basis: a 0% basis collapses the name inside the inline-flex chip */
+	flex: 0 1 auto;
 }
 
 .app-multi-person-item .nofbiz__button {
@@ -1199,6 +1238,10 @@ select:focus-visible {
 	font-size: 0.75rem;
 	min-height: unset;
 	line-height: 1;
+	/* SPARC .form-control width would make the button's flex basis the whole
+	   chip, squeezing the name; size it to its label and never shrink it. */
+	width: auto;
+	flex: none;
 }
 
 /* ==========================================================================
@@ -1246,6 +1289,7 @@ select:focus-visible {
 	color: var(--color-fg-primary);
 	max-height: 6rem;
 	overflow-y: auto;
+	overflow-wrap: anywhere;
 }
 
 .app-detail-value--empty {
@@ -1397,6 +1441,10 @@ select:focus-visible {
 
 .app-tree-mount svg {
 	font-family: inherit;
+	/* Ensure the SVG fills the mount when the tree is narrower than the container.
+	   When the tree is wider, the SVG's explicit width attribute triggers the
+	   mount's overflow-x: auto scrollbar. */
+	min-width: 100%;
 }
 
 .app-tree-node rect {
@@ -1576,6 +1624,7 @@ select:focus-visible {
 	color: var(--color-fg-primary);
 	margin: 0;
 	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .app-review-field__value--empty {

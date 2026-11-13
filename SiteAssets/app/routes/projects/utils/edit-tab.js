@@ -7,7 +7,7 @@ import {
   createLabeledField, createFormSection, createFormRow,
   createMultiPersonPicker, createGroupMemberPicker, createMultiTargetValuePicker,
   comboValue, optionToUserIdentity, buildSubCategoryChildren, bindSubCategoryToCategory,
-  resetComboToStored, resetPeoplePickerToStored
+  resetComboToStored, resetPeoplePickerToStored, toIdentityList
 } from '../../../utils/form-helpers.js'
 import { getSubCategoryOptions } from '../../../utils/definitions.js'
 
@@ -142,31 +142,54 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
 
   const businessLineField = new FormField({ value: project.BusinessLine || '' })
   const productField = new FormField({ value: project.Product || '' })
-  const sponsorField = new FormField({ value: '' })
-  const sponsorPicker = new PeoplePicker(sponsorField, { placeholder: 'Select sponsor', isDisabled: isClosed })
-  resetPeoplePickerToStored(sponsorPicker, sponsorField, project.Sponsor)
+  // A2: Sponsor is now a UserIdentity[] (multi-person). toIdentityList normalizes legacy single objects.
+  const sponsorsField = new FormField({ value: toIdentityList(project.Sponsor) })
   const stakeholdersField = new FormField({ value: project.Stakeholders || [] })
   const pmMembersField = new FormField({ value: project.PMMembers || [] })
   const statusField = new FormField({ value: project.Status || '' })
   const pmScopeField = new FormField({ value: project.PMScope || '' })
 
+  // A1: P4P PM field — single-select ComboBox, Contributing projects only.
+  // The field is always constructed so dirty-tracking and discard can reference it;
+  // it is only shown in the UI when project.Role === 'Contributing'.
+  const p4pPmField = new FormField({ value: '' })
+  if (project.P4PPM && typeof project.P4PPM === 'object' && project.P4PPM.email) {
+    const storedOpt = pmMemberOptions.find(opt => (opt.value?.email || '').toLowerCase() === project.P4PPM.email.toLowerCase())
+    p4pPmField.value = storedOpt || { label: project.P4PPM.displayName || project.P4PPM.email, value: project.P4PPM }
+  }
+  const p4pPmCombo = new ComboBox(p4pPmField, pmMemberOptions, {
+    allowFiltering: true,
+    placeholder: 'Select P4P PM',
+    isDisabled: isClosed,
+  })
+
   const businessLineCombo = new ComboBox(businessLineField, businessLines, { allowFiltering: true, allowCreate: true, isDisabled: isClosed })
   const statusCombo = new ComboBox(statusField, filteredStatuses, { allowFiltering: false, isDisabled: isClosed })
   const pmScopeCombo = new ComboBox(pmScopeField, pmScopeOptions, { allowFiltering: false, isDisabled: isClosed })
 
-  const governanceSection = createFormSection('Governance', [
+  const governancePeopleRows = [
     createFormRow([
-      createLabeledField('Business Line', businessLineCombo),
-      createLabeledField('Product', new TextInput(productField, { isDisabled: isClosed }))
-    ]),
-    createFormRow([
-      createLabeledField('Sponsor', sponsorPicker),
+      // A2: multi-person sponsor picker
+      createMultiPersonPicker('Sponsors', sponsorsField, false, { disabled: isClosed }),
       createMultiPersonPicker('Stakeholders', stakeholdersField, false, { disabled: isClosed })
     ]),
     createFormRow([
       createGroupMemberPicker('PM Members', pmMembersField, pmMemberOptions, false, { disabled: isClosed }),
       createLabeledField('Status', statusCombo)
     ]),
+  ]
+
+  // A1: P4P PM row — only for Contributing projects
+  if (project.Role === 'Contributing') {
+    governancePeopleRows.push(createLabeledField('P4P PM', p4pPmCombo))
+  }
+
+  const governanceSection = createFormSection('Governance', [
+    createFormRow([
+      createLabeledField('Business Line', businessLineCombo),
+      createLabeledField('Product', new TextInput(productField, { isDisabled: isClosed }))
+    ]),
+    ...governancePeopleRows,
     createFormRow([
       createLabeledField('PM Scope', pmScopeCombo),
     ])
@@ -199,12 +222,11 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
   let isGovernanceDirty = false
   let isImpactDirty = false
 
-  // Set to true when the picker's emitted email differs from the stored project email.
+  // Set to true when the PM picker's emitted email differs from the stored project email.
   // Prevents writing to SharePoint when the picker holds the seeded value or is empty
   // (no stored person). Reset to false on discard so a discarded pick is not written
   // on the next save.
   let pmPickerTouched = false
-  let sponsorPickerTouched = false
 
   const stickyFooter = new Container([], { class: 'app-sticky-save-bar app-sticky-save-bar--hidden' })
 
@@ -289,10 +311,19 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     watchField(productField, () => project.Product, markGovernanceDirty)
     watchField(statusField, () => project.Status, markGovernanceDirty)
     watchField(pmScopeField, () => project.PMScope, markGovernanceDirty)
-    watchPickerField(sponsorField, () => project.Sponsor?.email,
-      (v) => { sponsorPickerTouched = v }, markGovernanceDirty)
+    // A2: Sponsors is now an array — subscribe directly (no touched flag needed)
+    sponsorsField.subscribe(() => markGovernanceDirty())
     stakeholdersField.subscribe(() => markGovernanceDirty())
     pmMembersField.subscribe(() => markGovernanceDirty())
+    // A1: P4P PM dirty tracking for Contributing projects
+    if (project.Role === 'Contributing') {
+      p4pPmField.subscribe((val) => {
+        const newEmail = (val?.value?.email || val?.email || '').toLowerCase()
+        const storedEmail = (project.P4PPMEmail || '').toLowerCase()
+        if (newEmail === storedEmail) return
+        markGovernanceDirty()
+      })
+    }
 
     // Impact fields
     watchField(targetTypeField, () => project.TargetType, markImpactDirty)
@@ -371,18 +402,23 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
   async function saveGovernance() {
     if (isClosed) { console.warn('[EditTab] blocked save — project is closed'); return null }
     if (!canEdit) { console.warn('[EditTab] blocked save for non-editor role', effectiveRole); return null }
-    // Only include Sponsor when the user explicitly changed the picker.
-    // Skipping the write when untouched preserves the stored Sponsor without
-    // a redundant update.
+    // A1: resolve P4PPM identity only for Contributing projects
+    const p4pPmIdentity = project.Role === 'Contributing' ? optionToUserIdentity(p4pPmField.value) : undefined
     const data = {
       BusinessLine: comboValue(businessLineField.value),
       Product: productField.value,
-      ...(sponsorPickerTouched ? { Sponsor: optionToUserIdentity(sponsorField.value) || '' } : {}),
+      // A2: Sponsor is now a UserIdentity[] array — always written
+      Sponsor: sponsorsField.value,
       Stakeholders: stakeholdersField.value,
       PMMembers: pmMembersField.value,
       PMMembersEmail: (pmMembersField.value || []).map(ui => ui.email).join(';'),
       Status: comboValue(statusField.value),
       PMScope: comboValue(pmScopeField.value),
+      // A1: P4P PM fields for Contributing projects
+      ...(project.Role === 'Contributing' ? {
+        P4PPM: p4pPmIdentity || '',
+        P4PPMEmail: p4pPmIdentity?.email || '',
+      } : {}),
     }
     await siteApi.list(LIST_PROJECTS).updateItem(project.Id, data, project['odata.etag'])
     const [fresh] = await siteApi.list(LIST_PROJECTS).getItemByUUID(project.UUID)
@@ -392,7 +428,7 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
     const newEmails = (pmMembersField.value || []).map(ui => ui.email.toLowerCase())
     const removed = oldEmails.filter(e => !newEmails.includes(e))
     if (removed.length) {
-      // Use the field value only if the PM picker was touched (user changed it).
+      // Use the picker value only if the PM picker was touched (user changed it).
       // Otherwise fall back to the stored ProjectManagerEmail so an untouched
       // picker does not appear as "no PM" and delete the stored allocation.
       const currentPmEmail = (
@@ -466,7 +502,8 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
       // resetPeoplePickerToStored is used instead of resolveUser to avoid an async
       // AD lookup that could re-dirty the section after the bar hides.
       resetPeoplePickerToStored(pmPicker, projectManagerField, project.ProjectManager)
-      resetPeoplePickerToStored(sponsorPicker, sponsorField, project.Sponsor)
+      // A2: Sponsors is now a UserIdentity[] — restore the array directly
+      sponsorsField.value = toIdentityList(project.Sponsor)
 
       resetComboToStored(businessLineCombo, businessLineField, businessLines, project.BusinessLine || '')
       productField.value = project.Product || ''
@@ -475,16 +512,23 @@ export function createEditTab({ project, umbrellaCtx, umbrellaCurrent, createUmb
       resetComboToStored(statusCombo, statusField, filteredStatuses, project.Status || '')
       resetComboToStored(pmScopeCombo, pmScopeField, pmScopeOptions, project.PMScope || '')
 
+      // A1: restore P4PPM ComboBox for Contributing projects
+      if (project.Role === 'Contributing') {
+        const storedP4pEmail = (project.P4PPMEmail || '').toLowerCase()
+        const matchingOpt = pmMemberOptions.find(opt => (opt.value?.email || '').toLowerCase() === storedP4pEmail)
+        p4pPmField.value = matchingOpt || ''
+        if (p4pPmCombo.isAlive) p4pPmCombo.dataset = [...pmMemberOptions]
+      }
+
       resetComboToStored(targetTypeCombo, targetTypeField, targetTypes, project.TargetType || '')
       targetValuesField.value = project.TargetValues || []
       resetComboToStored(targetScopeCombo, targetScopeField, TARGET_SCOPES, project.TargetScope || '')
 
-      // Clear touched flags AFTER all resets — resetting the pickers fires field
-      // subscribers synchronously (dirty tracker and touched flags) which would
-      // otherwise leave pmPickerTouched / sponsorPickerTouched set to true, causing
-      // the next Save to overwrite the stored PM/Sponsor or delete their allocation.
+      // Clear touched flag AFTER all resets — resetting the PM picker fires field
+      // subscribers synchronously (dirty tracker and touched flag) which would
+      // otherwise leave pmPickerTouched set to true, causing the next Save to
+      // overwrite the stored PM or delete their allocation.
       pmPickerTouched = false
-      sponsorPickerTouched = false
 
       // Reset dirty AFTER all resyncs. The resets fire subscribers (marking dirty),
       // but the explicit reset below wins -- the bar is hidden after this handler.

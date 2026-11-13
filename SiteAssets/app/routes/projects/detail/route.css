@@ -106,18 +106,26 @@
 .app-people-row__text {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  flex: 1;
 }
 
 .app-people-row__name {
   font-size: 14px;
   line-height: 18px;
   color: var(--app-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-people-row__role {
   font-size: 12px;
   line-height: 14px;
   color: var(--app-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -425,6 +433,9 @@
   font-weight: var(--font-weight-semibold);
   color: var(--app-fg);
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Update description body */
@@ -435,6 +446,7 @@
   max-width: 720px;
   margin: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .app-timeline-section__label {
@@ -696,18 +708,25 @@
 .app-delegation-row__person-text {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .app-delegation-row__name {
   font-size: var(--font-size-300);
   line-height: 18px;
   color: var(--app-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-delegation-row__email {
   font-size: var(--font-size-200);
   line-height: 14px;
   color: var(--app-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-delegation-row__granted {

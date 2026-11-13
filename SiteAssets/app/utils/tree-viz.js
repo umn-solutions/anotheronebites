@@ -126,7 +126,11 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
   })
 
   const padding = 48
-  const svgWidth = Math.max(mountEl.clientWidth || 700, maxX - minX + nodeWidth + padding * 2)
+  // Always use the computed tree width so the SVG layout size is correct.
+  // The mount's overflow-x: auto provides horizontal scrolling when the tree
+  // is wider than the viewport. Capping to clientWidth would suppress the
+  // scrollbar when rightmost nodes overflow (the original clipping bug).
+  const svgWidth = maxX - minX + nodeWidth + padding * 2
   const svgHeight = (hierarchy.height + 1) * levelGap + 60
   const offsetX = -minX + nodeWidth / 2 + padding
 
@@ -250,53 +254,44 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
     .attr('font-weight', '600')
     .attr('letter-spacing', '0.08em')
     .attr('text-transform', 'uppercase')
-    .text(d => {
+    .each(function(d) {
+      const el = d3.select(this)
       const kind = d.data.type === 'program' ? 'PROGRAM' : 'PROJECT'
-      return d.data.isCurrent ? `${kind} · YOU ARE HERE` : kind
+      const label = d.data.isCurrent ? `${kind} · YOU ARE HERE` : kind
+      el.append('title').text(label)
+      el.append('tspan').attr('x', PADDING_X).attr('dy', 0).text(label)
     })
 
-  // Line 2: full untruncated name
+  // Line 2: single-line name, truncated with ellipsis when too wide.
+  // A native SVG <title> provides the full title as a tooltip on hover.
   nodeG.append('text')
     .attr('x', PADDING_X)
     .attr('y', LINE2_Y)
     .attr('fill', '#242424')
     .attr('font-size', '14px')
     .attr('font-weight', d => d.data.isCurrent ? '600' : '400')
-    .attr('line-height', '20px')
     .each(function(d) {
       const el = d3.select(this)
-      const title = d.data.title || ''
-      const maxWidth = nodeWidth - PADDING_X * 2
+      const fullTitle = d.data.title || ''
+      const maxWidth = nodeWidth - PADDING_X * 2  // 220px
 
-      // Wrap text using tspan elements if needed
-      const words = title.split(/\s+/)
-      let line = ''
-      let lineNumber = 0
-      const lineHeight = 18
+      // Native tooltip showing the full title on hover
+      el.append('title').text(fullTitle)
 
-      el.text(null)
+      const tspan = el.append('tspan').attr('x', PADDING_X).attr('dy', 0).text(fullTitle)
 
-      let tspan = el.append('tspan').attr('x', PADDING_X).attr('dy', 0)
-
-      for (const word of words) {
-        const testLine = line ? line + ' ' + word : word
-        tspan.text(testLine)
-        const textLength = tspan.node() ? tspan.node().getComputedTextLength() : 0
-
-        if (textLength > maxWidth && line) {
-          tspan.text(line)
-          tspan = el.append('tspan').attr('x', PADDING_X).attr('dy', lineHeight)
-          line = word
-          lineNumber++
-          if (lineNumber >= 2) break  // max 2 lines for name
-        } else {
-          line = testLine
+      // Measure and truncate if overflow (getComputedTextLength requires element in DOM)
+      const tspanNode = tspan.node()
+      if (tspanNode) {
+        let text = fullTitle
+        while (text.length > 1 && tspanNode.getComputedTextLength() > maxWidth) {
+          text = text.slice(0, -1)
+          tspanNode.textContent = text + '…'
         }
       }
-      tspan.text(line)
     })
 
-  // Line 3: child count for programs, status pill text for projects
+  // Line 3: child count for programs, status text for projects
   nodeG.append('text')
     .attr('x', PADDING_X)
     .attr('y', LINE3_Y)
@@ -307,7 +302,9 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
       if (d.data.type === 'program') {
         const count = d.data.childCount || (d.children ? d.children.length : 0)
         const label = count === 1 ? '1 child' : `${count} children`
-        el.attr('fill', '#616161').text(label)
+        el.attr('fill', '#616161')
+        el.append('title').text(label)
+        el.append('tspan').attr('x', PADDING_X).attr('dy', 0).text(label)
       } else {
         const status = d.data.status || ''
         // Use status-appropriate colors matching pastel vocabulary
@@ -320,7 +317,9 @@ export function renderTreeViz(mountEl, treeData, onNodeClick) {
           'Stopped':     '#991b1b',
         }
         const color = statusColors[status] || '#616161'
-        el.attr('fill', color).text(status)
+        el.attr('fill', color)
+        el.append('title').text(status)
+        el.append('tspan').attr('x', PADDING_X).attr('dy', 0).text(status)
       }
     })
 

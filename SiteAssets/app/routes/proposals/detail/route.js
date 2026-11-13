@@ -2,13 +2,13 @@ import {
   defineRoute, Container, Text, TextInput, TextArea, ComboBox, Button,
   FormField, SiteApi, Router, Toast, SystemError, PeoplePicker, CurrentUser
 } from '../../../libs/nofbiz/nofbiz.base.js'
-import { LIST_PROPOSALS } from '../../../utils/constants.js'
+import { LIST_PROPOSALS, QUERY_PARAM_PROPOSAL } from '../../../utils/constants.js'
 import { createDeleteAction } from '../../../utils/delete-entity.js'
 import { createLabeledField, createFormSection, createFormRow, userIdentityToOption, optionToUserIdentity, comboValue } from '../../../utils/form-helpers.js'
 import { loadDefinitions } from '../../../utils/definitions.js'
 import { loadScopes, getScopeOptions } from '../../../utils/scopes.js'
 import { statusClass } from '../../../utils/project-card.js'
-import { fetchUserScopes, isScopeOrCreatorVisible } from '../../../utils/access-control.js'
+import { fetchUserScopes, isScopeOrCreatorVisible, canValidateProposal } from '../../../utils/access-control.js'
 
 export default defineRoute(async (config) => {
   const siteApi = new SiteApi()
@@ -106,6 +106,14 @@ export default defineRoute(async (config) => {
   const pmScopeField = new FormField({ value: proposal.PMScope || '' })
   const statusField = new FormField({ value: proposal.Status ? { label: proposal.Status, value: proposal.Status } : { label: 'In Progress', value: 'In Progress' } })
 
+  // ---- Validate button (ADMIN or P4P members only) ----
+  const validateBtn = canValidateProposal(accessLevel, userScopes)
+    ? new Button('Validate as project', {
+        class: 'app-btn-primary',
+        onClickHandler: () => Router.navigateTo('projects/new', { query: { [QUERY_PARAM_PROPOSAL]: uuid } }),
+      })
+    : null
+
   // ---- Save button ----
   const saveBtn = new Button('Save', {
     variant: 'secondary',
@@ -161,6 +169,7 @@ export default defineRoute(async (config) => {
     new Container([
       ...(deleteTriggerBtn ? [deleteTriggerBtn] : []),
       new Container([
+        ...(validateBtn ? [validateBtn] : []),
         saveBtn,
       ], { class: 'app-prop-action-row__right' }),
     ], { class: 'app-prop-action-row' }),

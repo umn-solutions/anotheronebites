@@ -594,6 +594,14 @@ interface ModalProps extends ContainerProps {
     /** Indicates if Modal should be closed when user clicks outside it's bounding box. @default true */
     closeOnFocusLoss?: boolean;
     /**
+     * When false, pressing Escape does not close the modal. @default true
+     *
+     * Set to false for critical dialogs (such as BreakingErrorDialog) that must
+     * not be dismissed via keyboard -- the user should explicitly choose an action
+     * (e.g. reload the page) rather than accidentally clearing the error overlay.
+     */
+    closeOnEscape?: boolean;
+    /**
      * Called when the modal closes, regardless of the close path (button, Esc, close-X, backdrop /
      * focus-loss). Guaranteed to fire exactly once per close event. Package 03 (Router navigation
      * guard) depends on this contract: it assigns a handler here so it can resolve its guard promise
@@ -607,6 +615,7 @@ declare class Modal extends Container {
     backdrop: boolean;
     protected _isOpen: boolean;
     closeOnFocusLoss: boolean;
+    protected _closeOnEscape: boolean;
     protected _onCloseHandler: () => void;
     protected _onOpenHandler: () => void;
     /** Real backdrop DOM node appended to `_containerSelector`; sibling of the overlay so transforms don't trap it. */
@@ -623,9 +632,10 @@ declare class Modal extends Container {
     private _clearBlurTimeout;
     private _onFocusLossEventListener;
     /**
-     * Escape-to-close (B9): keyboard dismissal so the modal (and BreakingErrorDialog, which
-     * is rendered into a Modal) is dismissible without a pointer. Applied unconditionally --
-     * subclasses that override this method (SidePanel) call super() first and can re-bind.
+     * Escape-to-close (B9): keyboard dismissal so the modal is dismissible without a pointer.
+     * Skipped when `closeOnEscape` is false (e.g. BreakingErrorDialog, which must not be
+     * accidentally dismissed -- the user must explicitly choose reload or copy).
+     * Subclasses that override this method (SidePanel) call super() first and can re-bind.
      */
     private _onEscapeKeyListener;
     protected _applyEventListeners(): void;
@@ -1043,6 +1053,47 @@ declare class ComboBox extends FormControl<ComboBoxOptionProps | ComboBoxOptionP
     remove(): void;
 }
 
+interface ErrorOptions {
+    breaksFlow?: boolean;
+    cause?: unknown;
+}
+declare class SystemError extends Error {
+    private _name;
+    private _timestamp;
+    private _breaksFlow;
+    readonly cause: unknown;
+    constructor(name: string, message: string, options?: ErrorOptions);
+    static fromErrorEvent(event: ErrorEvent, options?: ErrorOptions): SystemError;
+    get timestamp(): Date;
+    get name(): string;
+    get breaksFlow(): boolean;
+    toString(): string;
+    /**
+     * Returns a plain object suitable for embedding in JSON.stringify() calls.
+     *
+     * Bug fix: the previous implementation returned a JSON STRING (the result of
+     * JSON.stringify()). That caused double-encoding whenever the result was
+     * passed to another JSON.stringify() call -- the string was serialized as an
+     * escaped string literal instead of an embedded object.
+     *
+     * Additionally, JSON.stringify() calls toJSON() automatically on any object
+     * that has the method, so a SystemError nested anywhere (e.g. as `cause`) was
+     * getting serialized as a string inside the outer object instead of as a
+     * nested object.
+     *
+     * Fix: toJSON() now returns a plain object. The cause chain is recursed:
+     *   - SystemError cause  -> its toJSON() object (recursive)
+     *   - Error cause        -> { name, message, stack }
+     *   - anything else      -> String(cause)
+     */
+    toJSON(): Record<string, unknown>;
+    /**
+     * Serializes the cause chain to a plain object or string.
+     * Recursing into SystemError causes ensures the full chain appears in the JSON.
+     */
+    private _serializeCause;
+}
+
 interface PeopleSearchResultData {
     Email?: string;
     Title?: string;
@@ -1267,6 +1318,37 @@ interface InitializeOptions {
  */
 declare class CurrentUser {
     #private;
+    /**
+     * Returns the singleton instance **only** if it has been successfully initialized,
+     * or `null` if initialization has not completed or no instance exists.
+     *
+     * This getter has no side effects -- it does not construct an instance,
+     * register a singleton, or trigger initialization. It is safe to call at
+     * any point in the application lifecycle.
+     *
+     * Intended for observers (e.g. `ErrorBoundary`) that need to read user data
+     * when available without triggering a new initialization.
+     */
+    static get current(): CurrentUser | null;
+    /**
+     * Clears the singleton, the in-flight promise, and signals any registered
+     * handlers that the current user identity is no longer valid.
+     *
+     * Call this when application logic detects that the current user's identity
+     * has become corrupt or inconsistent at runtime (e.g. after detecting a stale
+     * session or mismatched principal). It is distinct from the error path in
+     * `initialize()`: this is a voluntary invalidation, not a failure during setup.
+     *
+     * Effects:
+     * - Clears the singleton and in-flight promise (a subsequent `new CurrentUser()`
+     *   will create a fresh instance).
+     * - Dispatches {@link InvalidUserEvent} on `window`. The Router (if present)
+     *   will call `event.preventDefault()` and show the invalid-user page.
+     *
+     * @param reason - Optional description of why the user was invalidated.
+     *   Shown as muted hint text on the built-in invalid-user page.
+     */
+    static invalidate(reason?: SystemError | string): void;
     /**
      * Creates or returns the singleton `CurrentUser` instance.
      *
@@ -2305,6 +2387,12 @@ interface RouterProps {
      * When omitted, a built-in 403 page is shown with a generic access denied message.
      */
     unauthorizedRoute?: Route | Promise<Route>;
+    /**
+     * Custom route rendered when the current user's identity cannot be established.
+     * Accepts a {@link Route} or a `Promise<Route>` (e.g. from {@link defineRoute}).
+     * When omitted, a built-in page is shown with a "user could not be identified" message.
+     */
+    invalidUserRoute?: Route | Promise<Route>;
 }
 /** Array of route path strings registered with the Router. */
 type RoutePaths = string[];
@@ -2366,9 +2454,35 @@ declare class Router {
      * Tears down the current route and displays the 403 page. Does not push
      * a history entry -- unauthorized is a terminal state, not a navigable route.
      *
+     * **Terminal state semantics:** bumps `#navigationId` to prevent concurrent
+     * in-flight `_navigateTo` calls from overwriting the terminal page. A
+     * subsequent explicit `navigateTo` call WILL override the terminal page;
+     * this is intentional to allow recovery if the developer handles the error
+     * programmatically. This is the same behaviour as a normal page transition.
+     *
      * @throws {SystemError} If the Router has not been initialised.
      */
     static unauthorized(): void;
+    /**
+     * Renders the invalid-user page.
+     *
+     * Tears down the current route and displays the built-in (or custom) invalid-user
+     * page. Does not push a history entry -- invalid-user is a terminal state.
+     *
+     * **Pre-init queueing:** if called before `_initialize()` completes
+     * (`#routerReady` is false), the action is queued and applied as the very first
+     * render once initialization finishes, replacing the normal first navigation.
+     *
+     * **Terminal state semantics:** matches `unauthorized` -- bumps `#navigationId`
+     * to protect against concurrent navigations, but a subsequent explicit
+     * `navigateTo` call will still override the terminal page.
+     *
+     * @param reason - Optional underlying error or message to display on the built-in
+     *   page (shown as muted hint text). Raw stack traces are never displayed.
+     *
+     * @throws {SystemError} If the Router has not been initialised.
+     */
+    static invalidUser(reason?: SystemError | string): void;
     /**
      * Sets a navigation guard that is checked before every in-app navigation.
      * Also registers a `beforeunload` handler so the browser prompts on tab close/refresh
@@ -2410,20 +2524,70 @@ declare class Router {
      */
     constructor(routeRelativePaths: RoutePaths, props?: RouterProps);
     /**
-     * Resolves the optional 404 and 403 routes and performs the first navigation.
+     * Resolves a custom or default {@link Route}, sets its container selector, and
+     * returns the ready-to-use instance. Extracted to DRY up `_initialize`.
+     *
+     * @param override - Custom route or promise-of-route provided by the caller, if any.
+     * @param createDefault - Factory for the built-in fallback route.
+     */
+    private _resolveRoute;
+    /**
+     * Resolves the optional 404, 403, and invalid-user routes then performs the first navigation.
      *
      * Must be called after the singleton is assigned so that `_refreshCurrentPage`
      * can use `Router._runtimeInstance`.
+     *
+     * If a terminal-state action (e.g. from an early {@link Router.invalidUser} call) was
+     * queued before initialization finished, it is applied here instead of the normal
+     * first navigation so the terminal page is never overwritten by the initial render.
      */
     private _initialize;
+    /**
+     * Shared implementation for terminal-state renders (unauthorized, invalid-user).
+     *
+     * Clears the navigation guard, bumps `#navigationId` to prevent concurrent
+     * in-flight `_navigateTo` calls from overwriting the terminal page, tears down
+     * the outgoing route, and applies the given terminal route.
+     *
+     * **Terminal state semantics (same as a normal navigation):** a subsequent explicit
+     * `navigateTo` call WILL override the terminal page. This is intentional -- terminal
+     * states are not "locked" and developers can recover programmatically if needed.
+     */
+    private _applyTerminalState;
+    /**
+     * Builds the shared status-page content block used by the built-in 404, 403,
+     * and invalid-user pages.
+     *
+     * Returns a single {@link Container} styled with `.${LIB_PREFIX}__status-page`
+     * containing (from top to bottom):
+     * - Optional icon (RemixIcon SVG, centered, muted colour).
+     * - Optional large status code (e.g. `"404"`, `"403"`).
+     * - Title heading.
+     * - Description paragraph.
+     * - Optional muted hint text (e.g. redirect notice, reason message).
+     *
+     * @param code - Short status code displayed large (e.g. `"404"`). Pass `undefined`
+     *   to omit the code display (used by the invalid-user page).
+     * @param title - Page title heading.
+     * @param description - Main descriptive paragraph.
+     * @param hint - Optional muted secondary line (redirect notice, error reason, etc.).
+     * @param iconName - Optional RemixIcon name (e.g. `"lock-line"`). Silently skipped
+     *   if the icon cannot be found.
+     */
+    private _createStatusPageContent;
     /**
      * Creates the built-in 404 route with an 8-second auto-redirect to home.
      * Used when no custom `notFoundRoute` is provided.
      *
      * B5 fix -- `redirectTimer` was only cleared when the 404 page was re-shown.
      * If the user manually navigated away before the 8s elapsed, the timer still fired
-     * and forced a `navigateTo('/')`. Now the Route subclass overrides `remove()` to
-     * clear the timer on teardown (called by `_cleanup(outgoing)` during every transition).
+     * and forced a `navigateTo('/')`. The timer is now cleared via
+     * `route.registerCleanupRunner(clearRedirectTimer)`, which Route.remove() invokes
+     * before teardown on every navigation away from this route.
+     *
+     * Subclassing is intentionally avoided here: HTMDElement derives its BEM class name
+     * from `new.target.name`, so an inline subclass would produce `nofbiz__notfoundroute`
+     * instead of `nofbiz__route`, breaking the status-page centering styles.
      */
     private _createDefaultNotFoundRoute;
     /**
@@ -2432,6 +2596,15 @@ declare class Router {
      * Unlike the 404 page, there is no redirect timer -- unauthorized is a terminal state.
      */
     private _createDefaultUnauthorizedRoute;
+    /**
+     * Creates the built-in invalid-user route.
+     * Used when no custom `invalidUserRoute` is provided.
+     *
+     * The route reads `#invalidUserReason` from the Router instance at render time
+     * (via closure) so the most-recent reason from {@link Router.invalidUser} is always
+     * displayed. The raw stack trace is never shown; only `error.message` is used.
+     */
+    private _createDefaultInvalidUserRoute;
     [Symbol.toStringTag](): string;
     /**
      * Converts a route path to its absolute file URL via {@link resolvePath}.
@@ -2635,24 +2808,6 @@ declare class SimpleElapsedTimeBenchmark {
     get elapsed(): number;
 }
 
-interface ErrorOptions {
-    breaksFlow?: boolean;
-    cause?: unknown;
-}
-declare class SystemError extends Error {
-    private _name;
-    private _timestamp;
-    private _breaksFlow;
-    readonly cause: unknown;
-    constructor(name: string, message: string, options?: ErrorOptions);
-    static fromErrorEvent(event: ErrorEvent, options?: ErrorOptions): SystemError;
-    get timestamp(): Date;
-    get name(): string;
-    get breaksFlow(): boolean;
-    toString(): string;
-    toJSON(): string;
-}
-
 interface ErrorBoundaryProps {
     target?: Window | HTMLElement;
     onErrorCallback?: (error: ErrorEvent) => void;
@@ -2685,6 +2840,18 @@ interface ErrorBoundaryProps {
  *      _parseEventData() previously returned a generic SystemError for any non-ErrorEvent
  *      (CSP violations, resource load failures). It now extracts available context
  *      (message, filename, lineno, colno) from the Event to produce a more useful error.
+ *
+ *   4. Breaking error dedupe:
+ *      Cascading errors (e.g. a route error followed by a FormField cleanup error on the
+ *      same tick) could stack multiple BreakingErrorDialogs. _displayError now checks
+ *      BreakingErrorDialog.isShowing before creating a new overlay and suppresses
+ *      subsequent dialogs with a console.error (developer signal retained).
+ *
+ *   5. bfcache recovery:
+ *      When the browser restores a page from the back-forward cache (pageshow with
+ *      event.persisted === true) and an error dialog was open at freeze time, the
+ *      dialog's DOM (and scroll-lock state) is restored exactly. We detect this and
+ *      force a fresh navigation to the page root so the restored state is discarded.
  */
 declare class ErrorBoundary {
     protected _targetElement: Window | HTMLElement;
@@ -2693,8 +2860,22 @@ declare class ErrorBoundary {
     protected _name: string;
     private readonly _boundErrorHandler;
     private readonly _boundRejectionHandler;
+    private readonly _boundPageShowHandler;
     constructor(props: ErrorBoundaryProps);
-    protected _displayError(error: SystemError): Promise<void>;
+    /**
+     * Displays the error to the user.
+     *
+     * Breaking errors render a BreakingErrorDialog. Deduped: if a dialog is
+     * already showing (cascading errors on the same tick), subsequent breaking
+     * errors are logged but suppressed so overlays do not stack.
+     *
+     * Non-breaking errors show a Toast (non-intrusive) alongside a console.error.
+     *
+     * Not async: the previous `async` declaration was vestigial -- nothing inside
+     * uses `await`. Removed to avoid silently wrapping the return in a promise that
+     * callers never await.
+     */
+    protected _displayError(error: SystemError): void;
     /**
      * Classifies an incoming DOM Event as a SystemError.
      *
@@ -2714,7 +2895,7 @@ declare class ErrorBoundary {
     private _onAsyncErrorEventHandler;
     private _addEventListeners;
     /**
-     * Removes the error and unhandledrejection event listeners from the target element.
+     * Removes all event listeners registered by this ErrorBoundary.
      *
      * Call this before discarding an ErrorBoundary instance (e.g. in tests, or if the
      * Router is re-initialized) to prevent duplicate handlers from stacking on window.
@@ -2798,6 +2979,97 @@ declare class NavigationEvent extends RuntimeEvent {
     get from(): string | undefined;
     /** Query parameters passed with the navigation, if any. */
     get query(): Record<string, string> | undefined;
+}
+
+/**
+ * Dispatched on `window` when the current user's identity cannot be established.
+ *
+ * The event is cancelable. The {@link Router} registers a window listener in its
+ * constructor that calls `Router.invalidUser(reason)` and then
+ * `event.preventDefault()` to signal that the event was handled.
+ *
+ * Dispatchers (e.g. {@link CurrentUser}) inspect the return value of `dispatch()`:
+ *
+ * - `dispatch()` returns `false` (event was prevented) -- Router handled it;
+ *   re-throw the error with `breaksFlow: false` to avoid a duplicate dialog.
+ * - `dispatch()` returns `true` (event was not prevented) -- no Router present;
+ *   re-throw as-is so the ErrorBoundary surfaces the error normally.
+ *
+ * **Sticky signal for pre-Router failures:**
+ * When `dispatch()` is called and no handler prevents the event (i.e. Router has
+ * not been constructed yet), the reason is stored in {@link InvalidUserEvent.lastUnhandled}.
+ * The Router reads this during construction and queues the invalid-user page via the
+ * existing `#pendingTerminalState` path, so a `CurrentUser.initialize()` failure that
+ * occurs before `new Router(...)` is still surfaced correctly.
+ *
+ * The sticky is cleared when: (a) a handler calls `preventDefault()`, (b) the Router
+ * reads and consumes it at construction, or (c) `CurrentUser.initialize()` succeeds
+ * (superseding the previous failure).
+ *
+ * @example
+ * ```ts
+ * // Dispatching
+ * const event = new InvalidUserEvent(systemError);
+ * const handled = !event.dispatch(); // dispatch returns false when defaultPrevented
+ *
+ * // Listening (e.g. in a custom handler outside Router)
+ * const cleanup = InvalidUserEvent.listener((e) => {
+ *   console.log('User invalid:', e?.reason);
+ * });
+ * ```
+ */
+declare class InvalidUserEvent extends RuntimeEvent {
+    #private;
+    /**
+     * @param reason - The underlying error or message that caused identification to fail.
+     *   Pass a {@link SystemError} to preserve the full error chain, or a plain string
+     *   for lightweight signal-only use.
+     */
+    constructor(reason?: SystemError | string);
+    /**
+     * Dispatches the event and updates the sticky {@link lastUnhandled} signal.
+     *
+     * - If a handler calls `preventDefault()` (i.e. the Router handled it), the sticky
+     *   is cleared and `false` is returned.
+     * - If no handler prevents the event, the reason is stored in `lastUnhandled` so the
+     *   Router can pick it up when it constructs later, and `true` is returned.
+     *
+     * @returns `false` if `defaultPrevented`, `true` otherwise -- same semantics as
+     *   `EventTarget.dispatchEvent`.
+     */
+    dispatch(): boolean;
+    /**
+     * Returns the pending unhandled signal, or `null` if none.
+     * Used by the Router at construction time to pick up failures that occurred
+     * before the Router was instantiated.
+     */
+    static get lastUnhandled(): {
+        reason: SystemError | string | undefined;
+    } | null;
+    /**
+     * Clears the pending unhandled signal. Called by the Router after consuming
+     * the sticky, and by {@link CurrentUser} on successful initialization.
+     */
+    static clearLastUnhandled(): void;
+    /**
+     * Registers a listener for `InvalidUserEvent` on `window`.
+     *
+     * Returns a cleanup function. Call it when the listener is no longer needed to
+     * prevent memory leaks:
+     *
+     * @example
+     * ```ts
+     * const cleanup = InvalidUserEvent.listener((e) => {
+     *   console.log('User invalid:', e?.reason);
+     * });
+     *
+     * // Later, when cleaning up:
+     * cleanup();
+     * ```
+     */
+    static listener(callback: (event?: InvalidUserEvent) => void, options?: RuntimeEventListenerOptions): () => void;
+    /** The underlying error or message that caused identification to fail. */
+    get reason(): SystemError | string | undefined;
 }
 
 interface RouteConfig {
@@ -4091,5 +4363,5 @@ declare global {
     }
 }
 
-export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveCanonicalUser, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
+export { AccordionGroup, AccordionItem, Button, Card, CheckBox, ComboBox, Container, ContextStore, CurrentUser, DateInput, DateRangeInput, DebouncedInput, Dialog, ErrorBoundary, FORMAT_MAP, FieldLabel, FormControl, FormField, FormSchema, Fragment, HTMDElement, Image, InvalidUserEvent, LinkButton, List, Loader, MAX_RECIPIENTS_PER_CALL, Modal, NavigationEvent, NumberInput, PeoplePicker, Router, SP_ACCEPT_MINIMAL, SidePanel, SimpleElapsedTimeBenchmark, SiteApi, StyleResource, SystemError, TabGroup, Text, TextArea, TextInput, Toast, UserIdentity, View, ViewSwitcher, copyToClipboard, defineRoute, enforceStrictObject, escapeAttr, escapeHtml, extractComboBoxValue, fromFieldValue, generateRuntimeUID, generateUUIDv4, getFullUserDetails, getIcon, getUserProfile, isCallable, isComboBoxOption, isHTMDComponent, isHTMDNode, listIcons, pageReset, parseEmployeeId, refreshRequestDigest, registerIcons, resolveCanonicalUser, resolveEmailsToLogins, resolvePath, runtimeEventName, sanitizeQuery, searchUsers, sendEmail, spDELETE, spGET, spMERGE, spPOST, startDigestTimer, stopDigestTimer, toFieldValue };
 export type { AccordionGroupProps, AccordionItemProps, AugmentedSystemError, BuiltInIconName, ButtonProps, CAMLCondition, CAMLOperator, CAMLOrderByField, CAMLQueryObject, CAMLQueryResponse, CAMLValueOperator, CardProps, CardVariants, ChildrenOptions, ComboBoxDataset, ComboBoxOptionProps, ComboBoxProps, ContainerProps, ContainerTags, ContextStoreEntry, CreateFieldOptions, CreateListOptions, DATE_FORMATS, DateInputProps, DateRangeInputProps, DateRangeRules, DebouncedInputProps, DialogProps, DialogVariants, ErrorBoundaryProps, ErrorOptions, FieldLabelPosition, FieldLabelProps, FormControlProps, FormFieldProps, FormFieldType, FragmentProps, FullUserDetails, GetItemsOptions, GetItemsPagedOptions, GroupHierarchyEntry, HTMDElementInterface, HTMDElementProps, HTMDNode, HTMDSingleNode, IconName, IconSource, ImageProps, InitializeOptions, LabelTargetProvider, LinkButtonProps, ListApiOptions, ListProps, LoaderProps, ModalProps, NavigationGuardFn, NavigationOptions, NumberInputProps, PaginatedResult, PeoplePickerProps, PeopleSearchOptions, PeopleSearchResult, PeopleSearchResultData, ProfileProperty, ResolveEmailsResult, RouteConfig, RouteOptions, RoutePaths, RouterProps, RuntimeEventListenerOptions, RuntimeEventOptions, SPCollectionResponse, SPField, SPFieldValue, SPGroup, SPItemWithETag, SPList, SPRequestOptions, SPSimpleValue, SPUser, SPWeb, SendEmailArgs, SendEmailResult, SidePanelProps, SiteUserRow, StyleResourceOptions, TabConfig, TabGroupProps, TextAreaProps, TextInputProps, TextProps, ToastLoadingController, ToastOptions, ToastPromiseMessages, ToastType, UUID, Unsubscribe, UserIdentityProperties, UserProfile, UserProfilePayload, ViewProps, ViewSwitcherProps, __INTERNAL_DEBUG_OPTIONS, pageResetOptions };
